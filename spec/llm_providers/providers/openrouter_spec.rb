@@ -57,6 +57,43 @@ RSpec.describe LlmProviders::Providers::Openrouter do
 
     it_behaves_like "a provider with missing API key", "OPENROUTER_API_KEY"
 
+    describe "provider routing" do
+      before do
+        stub_request(:post, api_url)
+          .to_return(
+            status: 200,
+            body: {
+              choices: [{ message: { role: "assistant", content: "Hi" } }],
+              usage: { prompt_tokens: 10, completion_tokens: 5 }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+      end
+
+      context "with provider preferences" do
+        let(:provider) do
+          described_class.new(provider: { order: ["Anthropic", "Google"], allow_fallbacks: true })
+        end
+
+        it "includes provider field in request payload" do
+          provider.chat(messages: messages)
+          expect(WebMock).to have_requested(:post, api_url)
+            .with { |req|
+              body = JSON.parse(req.body)
+              body["provider"] == { "order" => ["Anthropic", "Google"], "allow_fallbacks" => true }
+            }
+        end
+      end
+
+      context "without provider preferences" do
+        it "does not include provider field in request payload" do
+          provider.chat(messages: messages)
+          expect(WebMock).to have_requested(:post, api_url)
+            .with { |req| !JSON.parse(req.body).key?("provider") }
+        end
+      end
+    end
+
     describe "custom headers" do
       before do
         stub_request(:post, api_url)

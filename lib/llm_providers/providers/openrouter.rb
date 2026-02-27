@@ -27,6 +27,12 @@ module LlmProviders
 
       private
 
+      def build_payload(messages, system, tools)
+        payload = super
+        payload[:provider] = @provider_preferences if @provider_preferences
+        payload
+      end
+
       def request_headers
         headers = super
         headers["X-Title"] = @app_name if @app_name
