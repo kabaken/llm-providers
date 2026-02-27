@@ -122,15 +122,15 @@ Every `chat` call returns a hash with:
 
 ### OpenRouter
 
-OpenRouter gives you access to 300+ models through a single API. You can specify app attribution headers, provider routing preferences, and discover available models.
+OpenRouter gives you access to 300+ models through a single API — ideal for providers not directly supported by this gem (DeepSeek, Meta Llama, Mistral, Qwen, etc.).
 
 ```ruby
 provider = LlmProviders::Providers.build(
   :openrouter,
-  model: "meta-llama/llama-3.3-70b-instruct",
+  model: "deepseek/deepseek-chat",
   app_name: "MyApp",
   app_url: "https://myapp.example.com",
-  provider: { order: ["Anthropic", "Google"], allow_fallbacks: true }
+  provider: { order: ["DeepSeek", "Together"], allow_fallbacks: true }
 )
 
 # List available models
@@ -165,8 +165,9 @@ ANTHROPIC_API_KEY=your-key ruby examples/with_tools.rb
 OPENAI_API_KEY=your-key ruby examples/simple_chat.rb openai
 GOOGLE_API_KEY=your-key ruby examples/simple_chat.rb google
 
-# OpenRouter with model selection
-OPENROUTER_API_KEY=your-key ruby examples/simple_chat.rb openrouter meta-llama/llama-3.3-70b-instruct
+# OpenRouter (DeepSeek, Llama, Mistral, etc.)
+OPENROUTER_API_KEY=your-key ruby examples/simple_chat.rb openrouter deepseek/deepseek-chat
+OPENROUTER_API_KEY=your-key ruby examples/with_tools.rb openrouter meta-llama/llama-3.3-70b-instruct
 ```
 
 ## License

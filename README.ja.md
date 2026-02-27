@@ -122,15 +122,15 @@ end
 
 ### OpenRouter
 
-OpenRouter を使えば、単一の API で 300 以上のモデルにアクセスできます。アプリ識別ヘッダー、プロバイダールーティング、モデル一覧取得に対応しています。
+OpenRouter を使えば、単一の API で 300 以上のモデルにアクセスできます。この gem が直接サポートしていないプロバイダー（DeepSeek、Meta Llama、Mistral、Qwen など）に最適です。
 
 ```ruby
 provider = LlmProviders::Providers.build(
   :openrouter,
-  model: "meta-llama/llama-3.3-70b-instruct",
+  model: "deepseek/deepseek-chat",
   app_name: "MyApp",
   app_url: "https://myapp.example.com",
-  provider: { order: ["Anthropic", "Google"], allow_fallbacks: true }
+  provider: { order: ["DeepSeek", "Together"], allow_fallbacks: true }
 )
 
 # 利用可能なモデル一覧
@@ -165,8 +165,9 @@ ANTHROPIC_API_KEY=your-key ruby examples/with_tools.rb
 OPENAI_API_KEY=your-key ruby examples/simple_chat.rb openai
 GOOGLE_API_KEY=your-key ruby examples/simple_chat.rb google
 
-# OpenRouter でモデル指定
-OPENROUTER_API_KEY=your-key ruby examples/simple_chat.rb openrouter meta-llama/llama-3.3-70b-instruct
+# OpenRouter (DeepSeek, Llama, Mistral など)
+OPENROUTER_API_KEY=your-key ruby examples/simple_chat.rb openrouter deepseek/deepseek-chat
+OPENROUTER_API_KEY=your-key ruby examples/with_tools.rb openrouter meta-llama/llama-3.3-70b-instruct
 ```
 
 ## ライセンス
