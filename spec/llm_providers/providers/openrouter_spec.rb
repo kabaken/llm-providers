@@ -151,6 +151,125 @@ RSpec.describe LlmProviders::Providers::Openrouter do
     end
   end
 
+  describe "error handling" do
+    context "with OpenRouter error format including metadata" do
+      before do
+        stub_request(:post, api_url)
+          .to_return(
+            status: 502,
+            body: {
+              error: {
+                code: 502,
+                message: "Model is unavailable",
+                metadata: { provider_name: "DeepSeek", raw: "upstream timeout" }
+              }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+      end
+
+      it "includes provider name in error message" do
+        expect { provider.chat(messages: messages) }
+          .to raise_error(LlmProviders::ProviderError, /\[DeepSeek\].*Model is unavailable/)
+      end
+
+      it "uses openrouter_error code" do
+        expect { provider.chat(messages: messages) }
+          .to raise_error(LlmProviders::ProviderError) { |e|
+            expect(e.code).to eq("openrouter_error")
+          }
+      end
+    end
+
+    context "with error without metadata" do
+      before do
+        stub_request(:post, api_url)
+          .to_return(
+            status: 400,
+            body: {
+              error: { message: "Bad request" }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+      end
+
+      it "raises ProviderError without provider prefix" do
+        expect { provider.chat(messages: messages) }
+          .to raise_error(LlmProviders::ProviderError, "Bad request")
+      end
+    end
+
+    context "with 429 rate limit error" do
+      before do
+        stub_request(:post, api_url)
+          .to_return(
+            status: 429,
+            body: {
+              error: { code: 429, message: "Rate limit exceeded" }
+            }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+      end
+
+      it "raises ProviderError with rate limit info" do
+        expect { provider.chat(messages: messages) }
+          .to raise_error(LlmProviders::ProviderError, /Rate limit/)
+      end
+    end
+
+    context "with streaming error including provider metadata" do
+      let(:stream_data) do
+        [
+          "data: #{JSON.generate(choices: [{ delta: { content: "Hello" } }])}\n\n",
+          "data: #{JSON.generate(error: { code: 502, message: "Provider failed", metadata: { provider_name: "Together" } })}\n\n"
+        ].join
+      end
+
+      before do
+        stub_request(:post, api_url)
+          .to_return(
+            status: 200,
+            body: stream_data,
+            headers: { "Content-Type" => "text/event-stream" }
+          )
+      end
+
+      it "raises ProviderError with provider name from stream error" do
+        expect { provider.chat(messages: messages) { |_| } }
+          .to raise_error(LlmProviders::ProviderError, /\[Together\].*Provider failed/)
+      end
+
+      it "uses openrouter_error code for stream errors" do
+        expect { provider.chat(messages: messages) { |_| } }
+          .to raise_error(LlmProviders::ProviderError) { |e|
+            expect(e.code).to eq("openrouter_error")
+          }
+      end
+    end
+
+    context "with streaming error without provider metadata" do
+      let(:stream_data) do
+        [
+          "data: #{JSON.generate(error: { code: 500, message: "Internal error" })}\n\n"
+        ].join
+      end
+
+      before do
+        stub_request(:post, api_url)
+          .to_return(
+            status: 200,
+            body: stream_data,
+            headers: { "Content-Type" => "text/event-stream" }
+          )
+      end
+
+      it "raises ProviderError without provider prefix" do
+        expect { provider.chat(messages: messages) { |_| } }
+          .to raise_error(LlmProviders::ProviderError, "Internal error")
+      end
+    end
+  end
+
   describe "API URL" do
     it "uses OpenRouter endpoint" do
       expect(described_class::API_URL).to eq("https://openrouter.ai/api/v1/chat/completions")

@@ -140,7 +140,7 @@ module LlmProviders
             event = JSON.parse(data)
 
             if event["error"]
-              stream_error = event.dig("error", "message") || event["error"].to_s
+              stream_error = format_stream_error(event)
               next
             end
 
@@ -198,7 +198,7 @@ module LlmProviders
         # Process any remaining data in the buffer
         process_sse_line.call(line_buffer) unless line_buffer.empty?
 
-        raise ProviderError.new(stream_error, code: "openai_error") if stream_error
+        raise ProviderError.new(stream_error, code: error_code) if stream_error
 
         unless response.success?
           error_body = begin
@@ -209,7 +209,7 @@ module LlmProviders
           error_msg = error_body.dig("error", "message") || (raw_chunks.empty? ? nil : raw_chunks) || response.body.to_s
           raise ProviderError.new(
             error_msg[0, 500],
-            code: "openai_error"
+            code: error_code
           )
         end
 
@@ -236,8 +236,8 @@ module LlmProviders
 
         unless response.success?
           raise ProviderError.new(
-            response.body.dig("error", "message") || "API error",
-            code: "openai_error"
+            parse_sync_error(response),
+            code: error_code
           )
         end
 
@@ -264,6 +264,18 @@ module LlmProviders
           latency_ms: ((Time.now - started_at) * 1000).to_i,
           raw_response: body
         }
+      end
+
+      def error_code
+        "openai_error"
+      end
+
+      def format_stream_error(event)
+        event.dig("error", "message") || event["error"].to_s
+      end
+
+      def parse_sync_error(response)
+        response.body.dig("error", "message") || "API error"
       end
 
       def parse_tool_input(arguments)

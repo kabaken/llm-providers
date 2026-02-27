@@ -39,6 +39,28 @@ module LlmProviders
         headers["HTTP-Referer"] = @app_url if @app_url
         headers
       end
+
+      def error_code
+        "openrouter_error"
+      end
+
+      def format_stream_error(event)
+        message = event.dig("error", "message") || event["error"].to_s
+        provider_name = event.dig("error", "metadata", "provider_name")
+        provider_name ? "[#{provider_name}] #{message}" : message
+      end
+
+      def parse_sync_error(response)
+        body = response.body
+        body = begin
+          JSON.parse(body)
+        rescue StandardError
+          {}
+        end if body.is_a?(String)
+        message = body.dig("error", "message") || "API error"
+        provider_name = body.dig("error", "metadata", "provider_name")
+        provider_name ? "[#{provider_name}] #{message}" : message
+      end
     end
   end
 end
