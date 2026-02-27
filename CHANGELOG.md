@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1] - 2026-02-27
+
+### Fixed
+
+- Fix `examples/simple_chat.rb` crash when provider name is passed as argument (`gets` → `$stdin.gets`)
+- All examples now accept optional model name argument (e.g., `ruby examples/simple_chat.rb openrouter google/gemini-2.5-flash`)
+
 ## [0.2.0] - 2026-02-27
 
 ### Added
