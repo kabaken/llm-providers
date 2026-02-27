@@ -22,7 +22,7 @@
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-5-20250929` |
 | `openai` | `OPENAI_API_KEY` | `gpt-5-mini` |
 | `google` | `GOOGLE_API_KEY` | `gemini-2.5-flash` |
-| `openrouter` *(実験的)* | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4.5` |
+| `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4.5` |
 
 ## インストール
 
@@ -120,14 +120,32 @@ end
 }
 ```
 
+### OpenRouter
+
+OpenRouter を使えば、単一の API で 300 以上のモデルにアクセスできます。アプリ識別ヘッダー、プロバイダールーティング、モデル一覧取得に対応しています。
+
+```ruby
+provider = LlmProviders::Providers.build(
+  :openrouter,
+  model: "meta-llama/llama-3.3-70b-instruct",
+  app_name: "MyApp",
+  app_url: "https://myapp.example.com",
+  provider: { order: ["Anthropic", "Google"], allow_fallbacks: true }
+)
+
+# 利用可能なモデル一覧
+models = LlmProviders::Providers::Openrouter.models
+models.each { |m| puts "#{m[:id]} (ctx: #{m[:context_length]})" }
+```
+
 ### エラーハンドリング
 
 ```ruby
 begin
   result = provider.chat(messages: messages)
 rescue LlmProviders::ProviderError => e
-  puts "エラー: #{e.message}"
-  puts "コード: #{e.code}"  # 例: "anthropic_error", "openai_error"
+  puts "エラー: #{e.message}"  # OpenRouter: "[DeepSeek] Model is unavailable"
+  puts "コード: #{e.code}"     # 例: "anthropic_error", "openrouter_error"
 end
 ```
 
@@ -146,6 +164,9 @@ ANTHROPIC_API_KEY=your-key ruby examples/with_tools.rb
 # 他のプロバイダー
 OPENAI_API_KEY=your-key ruby examples/simple_chat.rb openai
 GOOGLE_API_KEY=your-key ruby examples/simple_chat.rb google
+
+# OpenRouter でモデル指定
+OPENROUTER_API_KEY=your-key ruby examples/simple_chat.rb openrouter meta-llama/llama-3.3-70b-instruct
 ```
 
 ## ライセンス

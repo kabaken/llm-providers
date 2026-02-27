@@ -22,7 +22,7 @@ A lightweight, unified interface for multiple LLM providers. Only depends on `fa
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-sonnet-4-5-20250929` |
 | `openai` | `OPENAI_API_KEY` | `gpt-5-mini` |
 | `google` | `GOOGLE_API_KEY` | `gemini-2.5-flash` |
-| `openrouter` *(experimental)* | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4.5` |
+| `openrouter` | `OPENROUTER_API_KEY` | `anthropic/claude-sonnet-4.5` |
 
 ## Installation
 
@@ -120,14 +120,32 @@ Every `chat` call returns a hash with:
 }
 ```
 
+### OpenRouter
+
+OpenRouter gives you access to 300+ models through a single API. You can specify app attribution headers, provider routing preferences, and discover available models.
+
+```ruby
+provider = LlmProviders::Providers.build(
+  :openrouter,
+  model: "meta-llama/llama-3.3-70b-instruct",
+  app_name: "MyApp",
+  app_url: "https://myapp.example.com",
+  provider: { order: ["Anthropic", "Google"], allow_fallbacks: true }
+)
+
+# List available models
+models = LlmProviders::Providers::Openrouter.models
+models.each { |m| puts "#{m[:id]} (ctx: #{m[:context_length]})" }
+```
+
 ### Error Handling
 
 ```ruby
 begin
   result = provider.chat(messages: messages)
 rescue LlmProviders::ProviderError => e
-  puts "Error: #{e.message}"
-  puts "Code: #{e.code}"  # e.g., "anthropic_error", "openai_error"
+  puts "Error: #{e.message}"  # OpenRouter: "[DeepSeek] Model is unavailable"
+  puts "Code: #{e.code}"      # e.g., "anthropic_error", "openrouter_error"
 end
 ```
 
@@ -146,6 +164,9 @@ ANTHROPIC_API_KEY=your-key ruby examples/with_tools.rb
 # Other providers
 OPENAI_API_KEY=your-key ruby examples/simple_chat.rb openai
 GOOGLE_API_KEY=your-key ruby examples/simple_chat.rb google
+
+# OpenRouter with model selection
+OPENROUTER_API_KEY=your-key ruby examples/simple_chat.rb openrouter meta-llama/llama-3.3-70b-instruct
 ```
 
 ## License
