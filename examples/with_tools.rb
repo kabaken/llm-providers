@@ -6,11 +6,13 @@
 # Usage / 使い方:
 #   cd llm-providers
 #   ANTHROPIC_API_KEY=your-key ruby examples/with_tools.rb
+#   OPENROUTER_API_KEY=your-key ruby examples/with_tools.rb openrouter meta-llama/llama-3.3-70b-instruct
 
 require "bundler/setup"
 require "llm_providers"
 
 provider_name = ARGV[0] || "anthropic"
+model_name = ARGV[1]
 
 tools = [
   {
@@ -50,14 +52,16 @@ def execute_tool(name, input)
   end
 end
 
-provider = LlmProviders::Providers.build(provider_name, max_tokens: 1024)
+options = { max_tokens: 1024 }
+options[:model] = model_name if model_name
+provider = LlmProviders::Providers.build(provider_name, **options)
 
 messages = [
   { role: "user", content: "What's the weather in Tokyo and what time is it there?" }
 ]
 
 puts "=== Tool Calling Example ==="
-puts "Provider: #{provider_name}"
+puts "Provider: #{provider_name}#{model_name ? " (#{model_name})" : ""}"
 puts "User: #{messages.first[:content]}"
 puts
 

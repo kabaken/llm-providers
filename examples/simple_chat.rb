@@ -8,6 +8,7 @@
 #   ANTHROPIC_API_KEY=your-key ruby examples/simple_chat.rb
 #   OPENAI_API_KEY=your-key ruby examples/simple_chat.rb openai
 #   GOOGLE_API_KEY=your-key ruby examples/simple_chat.rb google
+#   OPENROUTER_API_KEY=your-key ruby examples/simple_chat.rb openrouter meta-llama/llama-3.3-70b-instruct
 
 require "bundler/setup"
 require "llm_providers"
@@ -17,26 +18,25 @@ LlmProviders.configure do |config|
   config.logger = Logger.new($stderr, level: Logger::WARN)
 end
 
-# Select provider from command line / コマンドラインからプロバイダー選択
+# Select provider and model from command line / コマンドラインからプロバイダー・モデル選択
 provider_name = ARGV[0] || "anthropic"
-
-puts "=== LlmProviders Simple Chat ==="
-puts "Provider: #{provider_name}"
-puts "Type 'exit' to quit / 'exit' で終了"
-puts
+model_name = ARGV[1]
 
 # Build provider / プロバイダーを構築
-provider = LlmProviders::Providers.build(
-  provider_name,
-  temperature: 0.7,
-  max_tokens: 1024
-)
+options = { temperature: 0.7, max_tokens: 1024 }
+options[:model] = model_name if model_name
+provider = LlmProviders::Providers.build(provider_name, **options)
+
+puts "=== LlmProviders Simple Chat ==="
+puts "Provider: #{provider_name}#{model_name ? " (#{model_name})" : ""}"
+puts "Type 'exit' to quit / 'exit' で終了"
+puts
 
 messages = []
 
 loop do
   print "You: "
-  input = gets&.chomp
+  input = $stdin.gets&.chomp
   break if input.nil? || input == "exit"
   next if input.empty?
 
