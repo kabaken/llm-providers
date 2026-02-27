@@ -111,6 +111,13 @@ module LlmProviders
         end
       end
 
+      def request_headers
+        {
+          "Content-Type" => "application/json",
+          "Authorization" => "Bearer #{api_key}"
+        }
+      end
+
       def stream_response(payload, &block)
         payload[:stream] = true
         payload[:stream_options] = { include_usage: true }
@@ -176,8 +183,7 @@ module LlmProviders
         end
 
         response = conn.post(self.class::API_URL) do |req|
-          req.headers["Content-Type"] = "application/json"
-          req.headers["Authorization"] = "Bearer #{api_key}"
+          request_headers.each { |k, v| req.headers[k] = v }
           req.body = payload.to_json
           req.options.on_data = proc do |chunk, _|
             raw_chunks += chunk
@@ -224,7 +230,7 @@ module LlmProviders
         started_at = Time.now
 
         response = http_client.post(self.class::API_URL) do |req|
-          req.headers["Authorization"] = "Bearer #{api_key}"
+          request_headers.each { |k, v| req.headers[k] = v }
           req.body = payload
         end
 
