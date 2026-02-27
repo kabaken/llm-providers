@@ -42,6 +42,65 @@ RSpec.describe LlmProviders::Providers::Openrouter do
       end
     end
 
+    context "with streaming response" do
+      let(:stream_data) do
+        [
+          "data: #{JSON.generate(choices: [{ delta: { content: "Hello" } }])}\n\n",
+          "data: #{JSON.generate(choices: [{ delta: { content: " world" } }])}\n\n",
+          "data: #{JSON.generate(usage: { prompt_tokens: 10, completion_tokens: 5 })}\n\n",
+          "data: [DONE]\n\n"
+        ].join
+      end
+
+      before do
+        stub_request(:post, api_url)
+          .to_return(
+            status: 200,
+            body: stream_data,
+            headers: { "Content-Type" => "text/event-stream" }
+          )
+      end
+
+      it "yields chunks and returns full content" do
+        chunks = []
+        result = provider.chat(messages: messages) do |chunk|
+          chunks << chunk[:content] if chunk[:content]
+        end
+
+        expect(chunks).to eq(["Hello", " world"])
+        expect(result[:content]).to eq("Hello world")
+      end
+    end
+
+    context "with streaming tool calls" do
+      let(:stream_data) do
+        [
+          "data: #{JSON.generate(choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1",
+                                                                     function: { name: "get_weather", arguments: "" } }] } }])}\n\n",
+          "data: #{JSON.generate(choices: [{ delta: { tool_calls: [{ index: 0,
+                                                                     function: { arguments: '{"location"' } }] } }])}\n\n",
+          "data: #{JSON.generate(choices: [{ delta: { tool_calls: [{ index: 0,
+                                                                     function: { arguments: ':"Tokyo"}' } }] } }])}\n\n",
+          "data: [DONE]\n\n"
+        ].join
+      end
+
+      before do
+        stub_request(:post, api_url)
+          .to_return(
+            status: 200,
+            body: stream_data,
+            headers: { "Content-Type" => "text/event-stream" }
+          )
+      end
+
+      it "assembles tool calls from stream" do
+        result = provider.chat(messages: messages) { |_| }
+        expect(result[:tool_calls].first[:name]).to eq("get_weather")
+        expect(result[:tool_calls].first[:input]).to eq({ "location" => "Tokyo" })
+      end
+    end
+
     context "with API error" do
       before do
         stub_request(:post, api_url)

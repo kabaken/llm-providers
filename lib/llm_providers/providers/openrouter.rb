@@ -2,9 +2,6 @@
 
 module LlmProviders
   module Providers
-    # Experimental: OpenRouter support is provided as-is.
-    # It wraps the OpenAI-compatible API at openrouter.ai.
-    # Not all features may work as expected with every model.
     class Openrouter < Openai
       API_URL = "https://openrouter.ai/api/v1/chat/completions"
       MODELS_URL = "https://openrouter.ai/api/v1/models"
