@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.2.2] - 2026-02-27
+
+### Fixed
+
+- Update READMEs: remove experimental label from OpenRouter, add OpenRouter usage docs (headers, routing, models API, error handling)
+
 ## [0.2.1] - 2026-02-27
 
 ### Fixed
