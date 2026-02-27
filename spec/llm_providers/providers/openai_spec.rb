@@ -136,6 +136,33 @@ RSpec.describe LlmProviders::Providers::Openai do
       end
     end
 
+    context "with chunk boundary splitting SSE lines" do
+      let(:line1) { "data: #{JSON.generate(choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", function: { name: "get_weather", arguments: "" } }] } }])}\n\n" }
+      let(:line2) { "data: #{JSON.generate(choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: '{"location"' } }] } }])}\n\n" }
+      let(:line3) { "data: #{JSON.generate(choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: ':"Tokyo"}' } }] } }])}\n\n" }
+      let(:line4) { "data: [DONE]\n\n" }
+
+      before do
+        # Simulate chunks that split in the middle of an SSE data line
+        chunk1 = line1 + line2[0, 20]
+        chunk2 = line2[20..] + line3
+        chunk3 = line4
+
+        stub_request(:post, api_url)
+          .to_return(
+            status: 200,
+            body: [chunk1, chunk2, chunk3].join,
+            headers: { "Content-Type" => "text/event-stream" }
+          )
+      end
+
+      it "correctly buffers and assembles tool call input across chunk boundaries" do
+        result = provider.chat(messages: messages) { |_| }
+        expect(result[:tool_calls].first[:name]).to eq("get_weather")
+        expect(result[:tool_calls].first[:input]).to eq({ "location" => "Tokyo" })
+      end
+    end
+
     context "with API error" do
       before do
         stub_request(:post, api_url)

@@ -131,9 +131,70 @@ module LlmProviders
         payload[:stream] = true
         started_at = Time.now
 
+        puts "[Anthropic] stream_response payload tools: #{payload[:tools]&.size || 0}"
+        puts "[Anthropic] payload[:tools] = #{payload[:tools].inspect}" if payload[:tools]
+
         full_content = ""
         tool_calls = []
         usage = {}
+        line_buffer = ""
+
+        process_sse_line = proc do |line|
+          next unless line.start_with?("data: ")
+
+          data = line.sub("data: ", "").strip
+          next if data == "[DONE]" || data.empty?
+
+          begin
+            event = JSON.parse(data)
+
+            case event["type"]
+            when "content_block_delta"
+              if event.dig("delta", "type") == "text_delta"
+                text = event.dig("delta", "text")
+                if text
+                  full_content += text
+                  block.call(content: text)
+                end
+              elsif event.dig("delta", "type") == "input_json_delta"
+                if tool_calls.any?
+                  tool_calls.last[:input_json] ||= ""
+                  tool_calls.last[:input_json] += event.dig("delta", "partial_json").to_s
+                end
+              end
+            when "content_block_start"
+              puts "[Anthropic] content_block_start: #{event["content_block"]&.dig("type")}"
+              if event.dig("content_block", "type") == "tool_use"
+                puts "[Anthropic] Tool use started: #{event.dig("content_block", "name")}"
+                tool_calls << {
+                  id: event.dig("content_block", "id"),
+                  name: event.dig("content_block", "name"),
+                  input: {},
+                  input_json: ""
+                }
+              end
+            when "content_block_stop"
+              if tool_calls.any? && tool_calls.last[:input_json] && !tool_calls.last[:input_json].empty?
+                begin
+                  tool_calls.last[:input] = JSON.parse(tool_calls.last[:input_json])
+                rescue JSON::ParserError
+                  # Keep empty on parse failure
+                end
+                tool_calls.last.delete(:input_json)
+              end
+            when "message_delta"
+              if event["usage"]
+                usage = {
+                  input: event.dig("usage", "input_tokens"),
+                  output: event.dig("usage", "output_tokens"),
+                  cached_input: event.dig("usage", "cache_read_input_tokens")
+                }
+              end
+            end
+          rescue JSON::ParserError
+            # Skip invalid JSON
+          end
+        end
 
         conn = Faraday.new do |f|
           f.options.open_timeout = 10
@@ -148,15 +209,16 @@ module LlmProviders
           req.headers["anthropic-version"] = API_VERSION
           req.body = payload.to_json
           req.options.on_data = proc do |chunk, _|
-            process_stream_chunk(chunk, full_content, tool_calls) do |parsed|
-              if parsed[:content]
-                full_content += parsed[:content]
-                block.call(content: parsed[:content])
-              end
-              usage = parsed[:usage] if parsed[:usage]
-            end
+            line_buffer += chunk
+            lines = line_buffer.split("\n", -1)
+            line_buffer = lines.pop || ""
+
+            lines.each(&process_sse_line)
           end
         end
+
+        # Process any remaining data in the buffer
+        process_sse_line.call(line_buffer) unless line_buffer.empty?
 
         unless response.success?
           error_message = begin
@@ -181,59 +243,6 @@ module LlmProviders
           latency_ms: ((Time.now - started_at) * 1000).to_i,
           raw_response: { content: full_content, tool_calls: tool_calls }
         }
-      end
-
-      def process_stream_chunk(chunk, _full_content, tool_calls)
-        chunk.each_line do |line|
-          next unless line.start_with?("data: ")
-
-          data = line.sub("data: ", "").strip
-          next if data == "[DONE]"
-
-          begin
-            event = JSON.parse(data)
-
-            case event["type"]
-            when "content_block_delta"
-              if event.dig("delta", "type") == "text_delta"
-                yield(content: event.dig("delta", "text"))
-              elsif event.dig("delta", "type") == "input_json_delta"
-                if tool_calls.any?
-                  tool_calls.last[:input_json] ||= ""
-                  tool_calls.last[:input_json] += event.dig("delta", "partial_json").to_s
-                end
-              end
-            when "content_block_start"
-              if event.dig("content_block", "type") == "tool_use"
-                tool_calls << {
-                  id: event.dig("content_block", "id"),
-                  name: event.dig("content_block", "name"),
-                  input: {},
-                  input_json: ""
-                }
-              end
-            when "content_block_stop"
-              if tool_calls.any? && tool_calls.last[:input_json] && !tool_calls.last[:input_json].empty?
-                begin
-                  tool_calls.last[:input] = JSON.parse(tool_calls.last[:input_json])
-                rescue JSON::ParserError
-                  # Keep empty on parse failure
-                end
-                tool_calls.last.delete(:input_json)
-              end
-            when "message_delta"
-              if event["usage"]
-                yield(usage: {
-                  input: event.dig("usage", "input_tokens"),
-                  output: event.dig("usage", "output_tokens"),
-                  cached_input: event.dig("usage", "cache_read_input_tokens")
-                })
-              end
-            end
-          rescue JSON::ParserError
-            # Skip invalid JSON
-          end
-        end
       end
 
       def sync_response(payload)

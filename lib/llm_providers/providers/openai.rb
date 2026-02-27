@@ -121,6 +121,52 @@ module LlmProviders
         usage = {}
         raw_chunks = ""
         stream_error = nil
+        line_buffer = ""
+
+        process_sse_line = proc do |line|
+          next unless line.start_with?("data: ")
+
+          data = line.sub("data: ", "").strip
+          next if data == "[DONE]" || data.empty?
+
+          begin
+            event = JSON.parse(data)
+
+            if event["error"]
+              stream_error = event.dig("error", "message") || event["error"].to_s
+              next
+            end
+
+            if event["usage"]
+              usage = {
+                input: event.dig("usage", "prompt_tokens"),
+                output: event.dig("usage", "completion_tokens"),
+                cached_input: event.dig("usage", "prompt_tokens_details", "cached_tokens")
+              }
+            end
+
+            choice = event.dig("choices", 0)
+            next unless choice
+
+            delta = choice["delta"]
+            next unless delta
+
+            if delta["content"]
+              full_content += delta["content"]
+              block.call(content: delta["content"])
+            end
+
+            delta["tool_calls"]&.each do |tc|
+              idx = tc["index"]
+              tool_calls[idx] ||= { id: "", name: "", arguments: "" }
+              tool_calls[idx][:id] = tc["id"] if tc["id"]
+              tool_calls[idx][:name] = tc.dig("function", "name") if tc.dig("function", "name")
+              tool_calls[idx][:arguments] += tc.dig("function", "arguments").to_s
+            end
+          rescue JSON::ParserError
+            # Skip invalid JSON
+          end
+        end
 
         conn = Faraday.new do |f|
           f.options.open_timeout = 10
@@ -135,16 +181,16 @@ module LlmProviders
           req.body = payload.to_json
           req.options.on_data = proc do |chunk, _|
             raw_chunks += chunk
-            process_stream_chunk(chunk, full_content, tool_calls) do |parsed|
-              if parsed[:content]
-                full_content += parsed[:content]
-                block.call(content: parsed[:content])
-              end
-              stream_error = parsed[:error] if parsed[:error]
-              usage = parsed[:usage] if parsed[:usage]
-            end
+            line_buffer += chunk
+            lines = line_buffer.split("\n", -1)
+            line_buffer = lines.pop || ""
+
+            lines.each(&process_sse_line)
           end
         end
+
+        # Process any remaining data in the buffer
+        process_sse_line.call(line_buffer) unless line_buffer.empty?
 
         raise ProviderError.new(stream_error, code: "openai_error") if stream_error
 
@@ -172,50 +218,6 @@ module LlmProviders
           latency_ms: ((Time.now - started_at) * 1000).to_i,
           raw_response: { content: full_content, tool_calls: final_tool_calls }
         }
-      end
-
-      def process_stream_chunk(chunk, _full_content, tool_calls)
-        chunk.each_line do |line|
-          next unless line.start_with?("data: ")
-
-          data = line.sub("data: ", "").strip
-          next if data == "[DONE]"
-
-          begin
-            event = JSON.parse(data)
-
-            if event["error"]
-              yield(error: event.dig("error", "message") || event["error"].to_s)
-              next
-            end
-
-            if event["usage"]
-              yield(usage: {
-                input: event.dig("usage", "prompt_tokens"),
-                output: event.dig("usage", "completion_tokens"),
-                cached_input: event.dig("usage", "prompt_tokens_details", "cached_tokens")
-              })
-            end
-
-            choice = event.dig("choices", 0)
-            next unless choice
-
-            delta = choice["delta"]
-            next unless delta
-
-            yield(content: delta["content"]) if delta["content"]
-
-            delta["tool_calls"]&.each do |tc|
-              idx = tc["index"]
-              tool_calls[idx] ||= { id: "", name: "", arguments: "" }
-              tool_calls[idx][:id] = tc["id"] if tc["id"]
-              tool_calls[idx][:name] = tc.dig("function", "name") if tc.dig("function", "name")
-              tool_calls[idx][:arguments] += tc.dig("function", "arguments").to_s
-            end
-          rescue JSON::ParserError
-            # Skip invalid JSON
-          end
-        end
       end
 
       def sync_response(payload)

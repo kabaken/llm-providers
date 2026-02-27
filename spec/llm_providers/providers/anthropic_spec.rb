@@ -132,6 +132,33 @@ RSpec.describe LlmProviders::Providers::Anthropic do
       end
     end
 
+    context "with chunk boundary splitting SSE lines" do
+      let(:line1) { "data: #{JSON.generate(type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "tool_1", name: "get_weather" })}\n\n" }
+      let(:line2) { "data: #{JSON.generate(type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: '{"location"' })}\n\n" }
+      let(:line3) { "data: #{JSON.generate(type: "content_block_delta", index: 0, delta: { type: "input_json_delta", partial_json: ':"Tokyo"}' })}\n\n" }
+      let(:line4) { "data: #{JSON.generate(type: "content_block_stop", index: 0)}\n\n" }
+
+      before do
+        # Simulate chunks that split in the middle of an SSE data line
+        chunk1 = line1 + line2[0, 20]
+        chunk2 = line2[20..] + line3
+        chunk3 = line4
+
+        stub_request(:post, api_url)
+          .to_return(
+            status: 200,
+            body: [chunk1, chunk2, chunk3].join,
+            headers: { "Content-Type" => "text/event-stream" }
+          )
+      end
+
+      it "correctly buffers and assembles tool call input across chunk boundaries" do
+        result = provider.chat(messages: messages) { |_| }
+        expect(result[:tool_calls].first[:name]).to eq("get_weather")
+        expect(result[:tool_calls].first[:input]).to eq({ "location" => "Tokyo" })
+      end
+    end
+
     context "with API error" do
       before do
         stub_request(:post, api_url)
