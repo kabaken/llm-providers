@@ -282,6 +282,66 @@ RSpec.describe LlmProviders::Providers::Openrouter do
     end
   end
 
+  describe ".models" do
+    let(:models_url) { "https://openrouter.ai/api/v1/models" }
+    let(:models_response) do
+      {
+        data: [
+          {
+            id: "anthropic/claude-sonnet-4.5",
+            name: "Claude Sonnet 4.5",
+            context_length: 200000,
+            pricing: { prompt: "0.000003", completion: "0.000015" }
+          },
+          {
+            id: "meta-llama/llama-3.3-70b-instruct",
+            name: "Llama 3.3 70B Instruct",
+            context_length: 131072,
+            pricing: { prompt: "0.0000004", completion: "0.0000004" }
+          }
+        ]
+      }
+    end
+
+    before do
+      stub_request(:get, models_url)
+        .to_return(
+          status: 200,
+          body: models_response.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+    end
+
+    it "returns a list of available models" do
+      models = described_class.models
+      expect(models.size).to eq(2)
+      expect(models.first[:id]).to eq("anthropic/claude-sonnet-4.5")
+    end
+
+    it "includes model metadata" do
+      model = described_class.models.first
+      expect(model[:name]).to eq("Claude Sonnet 4.5")
+      expect(model[:context_length]).to eq(200000)
+      expect(model[:pricing]).to eq({ prompt: "0.000003", completion: "0.000015" })
+    end
+
+    context "when API returns error" do
+      before do
+        stub_request(:get, models_url)
+          .to_return(
+            status: 500,
+            body: { error: { message: "Server error" } }.to_json,
+            headers: { "Content-Type" => "application/json" }
+          )
+      end
+
+      it "raises ProviderError" do
+        expect { described_class.models }
+          .to raise_error(LlmProviders::ProviderError, /Server error/)
+      end
+    end
+  end
+
   describe "inheritance" do
     it "inherits from Openai" do
       expect(described_class.superclass).to eq(LlmProviders::Providers::Openai)

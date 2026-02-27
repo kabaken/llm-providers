@@ -7,6 +7,36 @@ module LlmProviders
     # Not all features may work as expected with every model.
     class Openrouter < Openai
       API_URL = "https://openrouter.ai/api/v1/chat/completions"
+      MODELS_URL = "https://openrouter.ai/api/v1/models"
+
+      def self.models
+        api_key = ENV.fetch("OPENROUTER_API_KEY")
+        conn = Faraday.new do |f|
+          f.response :json
+          f.adapter Faraday.default_adapter
+        end
+
+        response = conn.get(MODELS_URL) do |req|
+          req.headers["Authorization"] = "Bearer #{api_key}"
+        end
+
+        unless response.success?
+          error_msg = response.body.dig("error", "message") || "Failed to fetch models"
+          raise ProviderError.new(error_msg, code: "openrouter_error")
+        end
+
+        (response.body["data"] || []).map do |model|
+          {
+            id: model["id"],
+            name: model["name"],
+            context_length: model["context_length"],
+            pricing: {
+              prompt: model.dig("pricing", "prompt"),
+              completion: model.dig("pricing", "completion")
+            }
+          }
+        end
+      end
 
       def initialize(app_name: nil, app_url: nil, provider: nil, **options)
         super(**options)
