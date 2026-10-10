@@ -137,6 +137,18 @@ RSpec.describe LlmProviders::Providers::Openrouter do
         expect(sent_body_for(model: "anthropic/claude-sonnet-4.5")).not_to have_key("temperature")
       end
 
+      it "omits reasoning by default" do
+        expect(sent_body_for(model: "openai/gpt-6-luna")).not_to have_key("reasoning")
+      end
+
+      { "low" => "low", "medium" => "medium", "high" => "high", "xhigh" => "high", "max" => "high" }.each do |effort, mapped|
+        it "forwards effort #{effort} as reasoning effort #{mapped}" do
+          body = sent_body_for(model: "openai/gpt-6-luna", effort: effort)
+          expect(body["reasoning"]).to eq("effort" => mapped)
+          expect(body).not_to have_key("reasoning_effort")
+        end
+      end
+
       it "keeps max_tokens and temperature for prefixed model ids (OpenRouter normalizes them)" do
         body = sent_body_for(model: "openai/gpt-6-luna", temperature: 0.4, max_tokens: 50)
         expect(body["max_tokens"]).to eq(50)

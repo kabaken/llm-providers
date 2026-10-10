@@ -47,7 +47,21 @@ RSpec.describe LlmProviders::Providers::Google do
     { "low" => "low", "medium" => "medium", "high" => "high", "xhigh" => "high", "max" => "high" }.each do |effort, level|
       it "maps effort #{effort} to thinkingLevel #{level}" do
         stub_ok
-        expect(sent_config_for(effort: effort).dig("thinkingConfig", "thinkingLevel")).to eq(level)
+        expect(sent_config_for(model: "gemini-3.8-flash", effort: effort).dig("thinkingConfig", "thinkingLevel")).to eq(level)
+      end
+    end
+
+    %w[gemini-3.8-flash gemini-3.1-flash-lite gemini-4-pro gemini-flash-latest gemini-pro-latest].each do |model|
+      it "sends thinkingConfig for #{model}" do
+        stub_ok
+        expect(sent_config_for(model: model, effort: "low").dig("thinkingConfig", "thinkingLevel")).to eq("low")
+      end
+    end
+
+    %w[gemini-2.5-flash gemini-2.0-flash gemini-1.5-pro].each do |model|
+      it "never sends thinkingConfig for #{model}" do
+        stub_ok
+        expect(sent_config_for(model: model, effort: "high")).not_to have_key("thinkingConfig")
       end
     end
 

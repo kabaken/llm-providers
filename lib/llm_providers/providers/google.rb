@@ -32,6 +32,15 @@ module LlmProviders
 
       private
 
+      # thinkingLevel exists from Gemini 3 on (and on *-latest aliases); Gemini 2.x
+      # uses thinkingBudget and would reject it, so effort is ignored there.
+      def thinking_level_supported?
+        return true if @model.match?(/-latest$/)
+
+        major = @model[/\Agemini-(\d+)/, 1]
+        !major.nil? && major.to_i >= 3
+      end
+
       def api_url(stream: false)
         action = stream ? "streamGenerateContent" : "generateContent"
         "#{BASE_URL}/#{@model}:#{action}?key=#{api_key}"
@@ -46,7 +55,7 @@ module LlmProviders
         }
 
         payload[:generationConfig][:temperature] = @temperature if @temperature
-        if @effort
+        if @effort && thinking_level_supported?
           payload[:generationConfig][:thinkingConfig] = { thinkingLevel: THINKING_LEVELS.fetch(@effort) }
         end
 
