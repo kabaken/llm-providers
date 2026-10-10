@@ -116,6 +116,35 @@ RSpec.describe LlmProviders::Providers::Openrouter do
 
     it_behaves_like "a provider with missing API key", "OPENROUTER_API_KEY"
 
+    describe "model parameters" do
+      before do
+        stub_request(:post, api_url).to_return(
+          status: 200,
+          body: { choices: [{ message: { role: "assistant", content: "ok" } }],
+                  usage: { prompt_tokens: 1, completion_tokens: 1 } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+      end
+
+      def sent_body_for(**opts)
+        body = nil
+        described_class.new(**opts).chat(messages: [{ role: "user", content: "Hi" }])
+        expect(WebMock).to(have_requested(:post, api_url).with { |req| body = JSON.parse(req.body) })
+        body
+      end
+
+      it "omits temperature by default" do
+        expect(sent_body_for(model: "anthropic/claude-sonnet-4.5")).not_to have_key("temperature")
+      end
+
+      it "keeps max_tokens and temperature for prefixed model ids (OpenRouter normalizes them)" do
+        body = sent_body_for(model: "openai/gpt-6-luna", temperature: 0.4, max_tokens: 50)
+        expect(body["max_tokens"]).to eq(50)
+        expect(body["temperature"]).to eq(0.4)
+        expect(body).not_to have_key("max_completion_tokens")
+      end
+    end
+
     describe "provider routing" do
       before do
         stub_request(:post, api_url)

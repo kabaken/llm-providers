@@ -239,6 +239,73 @@ RSpec.describe LlmProviders::Providers::Openai do
     end
   end
 
+  describe "model family handling" do
+    before do
+      stub_request(:post, api_url).to_return(
+        status: 200,
+        body: { choices: [{ message: { role: "assistant", content: "ok" } }],
+                usage: { prompt_tokens: 1, completion_tokens: 1 } }.to_json,
+        headers: { "Content-Type" => "application/json" }
+      )
+    end
+
+    def sent_body_for(**opts)
+      body = nil
+      described_class.new(**opts).chat(messages: messages)
+      expect(WebMock).to(have_requested(:post, api_url).with { |req| body = JSON.parse(req.body) })
+      body
+    end
+
+    %w[gpt-6-luna gpt-6.1-sol gpt-6-astra gpt-5.6-mini gpt-5-mini o3-mini o4-mini].each do |model|
+      it "treats #{model} as a reasoning model" do
+        body = sent_body_for(model: model, temperature: 0.5, max_tokens: 100)
+        expect(body["max_completion_tokens"]).to eq(100)
+        expect(body).not_to have_key("max_tokens")
+        expect(body).not_to have_key("temperature")
+      end
+    end
+
+    it "uses max_tokens and honors temperature for gpt-4.1" do
+      body = sent_body_for(model: "gpt-4.1", temperature: 0.5, max_tokens: 100)
+      expect(body["max_tokens"]).to eq(100)
+      expect(body["temperature"]).to eq(0.5)
+    end
+
+    it "uses max_completion_tokens for gpt-4o (legacy chat model)" do
+      body = sent_body_for(model: "gpt-4o", max_tokens: 100)
+      expect(body["max_completion_tokens"]).to eq(100)
+      expect(body).not_to have_key("temperature")
+    end
+
+    it "omits temperature for legacy models by default" do
+      expect(sent_body_for(model: "gpt-3.5-turbo")).not_to have_key("temperature")
+    end
+
+    it "omits reasoning_effort by default" do
+      expect(sent_body_for(model: "gpt-6-luna")).not_to have_key("reasoning_effort")
+    end
+
+    { "low" => "low", "medium" => "medium", "high" => "high", "xhigh" => "high", "max" => "high" }.each do |effort, mapped|
+      it "maps effort #{effort} to reasoning_effort #{mapped} for gpt-5.x" do
+        expect(sent_body_for(model: "gpt-5.6-mini", effort: effort)["reasoning_effort"]).to eq(mapped)
+      end
+
+      it "maps effort #{effort} to reasoning_effort #{mapped} for o-series" do
+        expect(sent_body_for(model: "o3-mini", effort: effort)["reasoning_effort"]).to eq(mapped)
+      end
+
+      %w[gpt-6-luna gpt-6.1-sol].each do |model|
+        it "passes effort #{effort} through unchanged for #{model}" do
+          expect(sent_body_for(model: model, effort: effort)["reasoning_effort"]).to eq(effort)
+        end
+      end
+    end
+
+    it "does not send reasoning_effort to legacy models" do
+      expect(sent_body_for(model: "gpt-4.1", effort: "high")).not_to have_key("reasoning_effort")
+    end
+  end
+
   describe "default_model" do
     it "returns gpt-5-mini" do
       expect(provider.send(:default_model)).to eq("gpt-5-mini")

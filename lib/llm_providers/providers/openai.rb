@@ -31,23 +31,40 @@ module LlmProviders
 
       def build_payload(messages, system, tools)
         formatted = format_messages(messages, system)
-        reasoning_model = @model.match?(/^(o1|o3|o4|gpt-5)/)
-
         payload = {
           model: @model,
           messages: formatted
         }
 
-        payload[:temperature] = @temperature unless reasoning_model
-
-        if @model.match?(/^(gpt-4o|gpt-5|o1|o3|o4)/)
+        if reasoning_model?
           payload[:max_completion_tokens] = @max_tokens
+          effort = reasoning_effort
+          payload[:reasoning_effort] = effort if effort
         else
-          payload[:max_tokens] = @max_tokens
+          payload[:temperature] = @temperature if @temperature
+          if @model.match?(/^gpt-4o/)
+            payload[:max_completion_tokens] = @max_tokens
+          else
+            payload[:max_tokens] = @max_tokens
+          end
         end
 
         payload[:tools] = format_tools(tools) if tools && !tools.empty?
         payload
+      end
+
+      # Everything except the legacy chat families (gpt-3.5*, gpt-4*) is a
+      # reasoning model: gpt-5*, gpt-6*, o-series and whatever comes next.
+      def reasoning_model?
+        !@model.match?(/^(gpt-3\.5|gpt-4)/)
+      end
+
+      # gpt-6* accepts the full effort range; older reasoning models top out at "high".
+      def reasoning_effort
+        return nil unless @effort
+        return @effort if @model.match?(/^gpt-6/)
+
+        %w[xhigh max].include?(@effort) ? "high" : @effort
       end
 
       def format_messages(messages, system)

@@ -54,6 +54,14 @@ module LlmProviders
 
       private
 
+      # OpenRouter ids are "vendor/model" (e.g. "openai/gpt-6-luna"). OpenRouter
+      # normalizes max_tokens/temperature across vendors, so we never apply the
+      # OpenAI reasoning rule here: send max_tokens, and temperature only if given.
+      # `effort` is not forwarded.
+      def reasoning_model?
+        false
+      end
+
       def build_payload(messages, system, tools)
         payload = super
         payload[:provider] = @provider_preferences if @provider_preferences
