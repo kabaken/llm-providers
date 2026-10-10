@@ -4,7 +4,11 @@
 
 ### Added
 
-- OpenAI `gpt-6*` models now use the Responses API (`/v1/responses`). On chat/completions these models return 400 when function tools and `reasoning_effort` are sent together. The system prompt goes in `instructions`, tools are sent as flat function tools with `strict: false`, `effort` becomes `reasoning.effort`, `max_tokens` becomes `max_output_tokens`, and `store` is `false`. Tool loops map to `function_call` / `function_call_output` items by call id. The return hash and streamed chunks keep their shape.
+- OpenAI `gpt-6*` models now use the Responses API (`/v1/responses`). On chat/completions, gpt-6-astra and gpt-6.1-sol reject function tools, and gpt-6-luna accepts them only with reasoning effort `none`. The system prompt goes in `instructions`, tools are sent as flat function tools with `strict: false`, `effort` becomes `reasoning.effort`, `max_tokens` becomes `max_output_tokens`, and `store` is `false`. Tool loops map to `function_call` / `function_call_output` items by call id. The return hash and streamed chunks keep their shape.
+
+### Known limitations
+
+- Reasoning items are not passed back between tool rounds, so the model does not keep its reasoning across a tool loop (tool loops still work). Usage `output` includes reasoning tokens.
 
 ### Unchanged
 
