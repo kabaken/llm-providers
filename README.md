@@ -78,8 +78,8 @@ provider = LlmProviders::Providers.build(
 - `effort` sets how hard the model thinks (`nil` means the provider default). Any other value raises `ArgumentError`.
   - Anthropic: sent as `output_config: { effort: ... }`.
   - OpenAI: sent as `reasoning_effort`. `gpt-6*` gets the value unchanged; older reasoning models (gpt-5*, o-series) get `xhigh` / `max` clamped to `high`. Ignored for `gpt-3.5*` / `gpt-4*`.
-  - Google: mapped to `thinkingConfig.thinkingLevel` (low, medium, high; xhigh and max become high).
-  - OpenRouter: not forwarded for now.
+  - Google: mapped to `thinkingConfig.thinkingLevel` (low, medium, high; xhigh and max become high). Only sent for Gemini 3 and later (and `*-latest` aliases); ignored for Gemini 2.x.
+  - OpenRouter: sent as `reasoning: { effort: ... }`, with xhigh and max clamped to `high`.
 - OpenAI treats every model except `gpt-3.5*` / `gpt-4*` as a reasoning model: it uses `max_completion_tokens` and sends no temperature. OpenRouter ids look like `vendor/model`, so it keeps using `max_tokens` and sends temperature only when given.
 - For Google, usage `output` includes thinking tokens.
 

@@ -78,8 +78,8 @@ provider = LlmProviders::Providers.build(
 - `effort` は思考の深さの指定です（`nil` ならプロバイダーのデフォルト）。範囲外の値は `ArgumentError` になります。
   - Anthropic: `output_config: { effort: ... }` にそのまま渡します。
   - OpenAI: `reasoning_effort` に渡します。`gpt-6*` はそのまま、それ以前の reasoning モデル（gpt-5*、o 系）は `xhigh` / `max` を `high` に丸めます。`gpt-3.5*` / `gpt-4*` では無視されます。
-  - Google: `thinkingConfig.thinkingLevel` に変換します（low→low、medium→medium、high/xhigh/max→high）。
-  - OpenRouter: 現状は転送しません。
+  - Google: `thinkingConfig.thinkingLevel` に変換します（low→low、medium→medium、high/xhigh/max→high）。Gemini 3 以降（と `*-latest`）にだけ送り、Gemini 2.x では無視します。
+  - OpenRouter: `reasoning: { effort: ... }` として送ります。`xhigh` / `max` は `high` に丸めます。
 - OpenAI は `gpt-3.5*` / `gpt-4*` 以外を reasoning モデルとして扱い、`max_completion_tokens` を使って temperature を送りません。OpenRouter は `vendor/model` 形式の ID なので従来どおり `max_tokens` を使い、temperature は指定時のみ送ります。
 - Google の usage の `output` は思考トークンを含みます。
 

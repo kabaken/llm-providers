@@ -2,15 +2,19 @@
 
 ## [0.3.0] - 2026-10-10
 
+### Breaking
+
+- `temperature` now defaults to `nil` and is sent only when given (it used to default to 0.7). Pass it explicitly to keep the old behavior on models that still accept it.
+- OpenAI reasoning detection is now "everything except the `gpt-3.5*` / `gpt-4*` families". Ids that do not start with those prefixes, such as `ft:gpt-4o-*` fine-tunes, `chatgpt-4o-latest` and `gpt-oss-*`, are now treated as reasoning models: they get `max_completion_tokens` and no `temperature`. OpenRouter is unaffected.
+
 ### Changed
 
-- **Breaking:** `temperature` now defaults to `nil` and is sent only when given (it used to default to 0.7). Claude 5.x and OpenAI reasoning models reject it.
-- OpenAI treats every model except `gpt-3.5*` / `gpt-4*` as a reasoning model. OpenRouter keeps the old behavior for its `vendor/model` ids.
 - Anthropic non-streaming responses join all text blocks instead of taking the first.
+- Anthropic debug output goes through `LlmProviders.logger.debug` instead of `puts`.
 
 ### Added
 
-- `effort:` option (`low`, `medium`, `high`, `xhigh`, `max`; `nil` for the provider default). Anthropic sends `output_config.effort`, OpenAI sends `reasoning_effort` (clamped to `high` below gpt-6), Google sends `thinkingConfig.thinkingLevel`. Unknown values raise `ArgumentError`.
+- `effort:` option (`low`, `medium`, `high`, `xhigh`, `max`; `nil` for the provider default). Anthropic sends `output_config.effort`, OpenAI sends `reasoning_effort` (clamped to `high` below gpt-6), Google sends `thinkingConfig.thinkingLevel` (Gemini 3 and later only; xhigh and max become high), OpenRouter sends `reasoning.effort` (xhigh and max become high). Unknown values raise `ArgumentError`.
 
 ### Fixed
 
