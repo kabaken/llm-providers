@@ -13,6 +13,103 @@ RSpec.describe LlmProviders::Providers::Anthropic do
     ENV.delete("ANTHROPIC_API_KEY")
   end
 
+  describe "request parameters" do
+    before do
+      stub_request(:post, api_url).to_return(
+        status: 200,
+        body: { content: [{ type: "text", text: "ok" }], usage: { input_tokens: 1, output_tokens: 1 } }.to_json,
+        headers: { "Content-Type" => "application/json" }
+      )
+    end
+
+    def sent_body
+      body = nil
+      expect(WebMock).to(have_requested(:post, api_url).with { |req| body = JSON.parse(req.body) })
+      body
+    end
+
+    it "omits temperature by default" do
+      described_class.new.chat(messages: messages)
+      expect(sent_body).not_to have_key("temperature")
+    end
+
+    it "sends temperature when given" do
+      described_class.new(temperature: 0.2).chat(messages: messages)
+      expect(sent_body["temperature"]).to eq(0.2)
+    end
+
+    it "omits output_config and thinking by default" do
+      described_class.new.chat(messages: messages)
+      expect(sent_body).not_to have_key("output_config")
+      expect(sent_body).not_to have_key("thinking")
+    end
+
+    it "sends output_config effort when set, and never thinking" do
+      described_class.new(effort: "xhigh").chat(messages: messages)
+      body = sent_body
+      expect(body["output_config"]).to eq("effort" => "xhigh")
+      expect(body).not_to have_key("thinking")
+    end
+  end
+
+  describe "thinking blocks" do
+    it "ignores thinking blocks in a synchronous response" do
+      stub_request(:post, api_url).to_return(
+        status: 200,
+        body: {
+          content: [
+            { type: "thinking", thinking: "", signature: "sig" },
+            { type: "text", text: "Answer" },
+            { type: "tool_use", id: "t1", name: "get_weather", input: { a: 1 } }
+          ],
+          usage: { input_tokens: 1, output_tokens: 1 }
+        }.to_json,
+        headers: { "Content-Type" => "application/json" }
+      )
+      result = described_class.new.chat(messages: messages)
+      expect(result[:content]).to eq("Answer")
+      expect(result[:tool_calls].map { |t| t[:name] }).to eq(["get_weather"])
+    end
+
+    it "returns empty content when only a thinking block is present" do
+      stub_request(:post, api_url).to_return(
+        status: 200,
+        body: { content: [{ type: "thinking", thinking: "hmm", signature: "s" }],
+                usage: { input_tokens: 1, output_tokens: 1 } }.to_json,
+        headers: { "Content-Type" => "application/json" }
+      )
+      expect(described_class.new.chat(messages: messages)[:content]).to eq("")
+    end
+
+    it "ignores thinking events in a streaming response" do
+      events = [
+        { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } },
+        { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "let me think" } },
+        { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "abc" } },
+        { type: "content_block_stop", index: 0 },
+        { type: "content_block_start", index: 1, content_block: { type: "text", text: "" } },
+        { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "Hi" } },
+        { type: "content_block_stop", index: 1 },
+        { type: "content_block_start", index: 2,
+          content_block: { type: "tool_use", id: "t1", name: "get_weather", input: {} } },
+        { type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: '{"a":1}' } },
+        { type: "content_block_stop", index: 2 },
+        { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { input_tokens: 3, output_tokens: 4 } }
+      ]
+      stub_request(:post, api_url).to_return(
+        status: 200,
+        body: events.map { |e| "data: #{JSON.generate(e)}\n\n" }.join,
+        headers: { "Content-Type" => "text/event-stream" }
+      )
+      chunks = []
+      result = described_class.new.chat(messages: messages) { |c| chunks << c[:content] }
+      expect(chunks).to eq(["Hi"])
+      expect(result[:content]).to eq("Hi")
+      expect(result[:tool_calls].first[:input]).to eq("a" => 1)
+      expect(result[:usage][:output]).to eq(4)
+    end
+  end
+
   describe "#chat" do
     context "with synchronous response" do
       before do

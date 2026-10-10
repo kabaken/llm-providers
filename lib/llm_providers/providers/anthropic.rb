@@ -48,6 +48,7 @@ module LlmProviders
         end
 
         payload[:temperature] = @temperature if @temperature
+        payload[:output_config] = { effort: @effort } if @effort
 
         if tools && !tools.empty?
           formatted_tools = format_tools(tools)
@@ -262,7 +263,7 @@ module LlmProviders
         end
 
         body = response.body
-        content = body["content"]&.find { |c| c["type"] == "text" }&.dig("text") || ""
+        content = (body["content"] || []).select { |c| c["type"] == "text" }.map { |c| c["text"].to_s }.join
 
         tool_calls = body["content"]&.select { |c| c["type"] == "tool_use" }&.map do |tc|
           { id: tc["id"], name: tc["name"], input: tc["input"] }
