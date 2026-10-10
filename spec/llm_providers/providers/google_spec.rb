@@ -13,6 +13,89 @@ RSpec.describe LlmProviders::Providers::Google do
     ENV.delete("GOOGLE_API_KEY")
   end
 
+  describe "generation config and usage" do
+    def stub_ok(body = nil)
+      body ||= {
+        candidates: [{ content: { parts: [{ text: "ok" }], role: "model" } }],
+        usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 4, thoughtsTokenCount: 6 }
+      }
+      stub_request(:post, api_url_pattern).to_return(
+        status: 200, body: body.to_json, headers: { "Content-Type" => "application/json" }
+      )
+    end
+
+    def sent_config_for(**opts)
+      config = nil
+      described_class.new(**opts).chat(messages: messages)
+      expect(WebMock).to(have_requested(:post, api_url_pattern).with { |req| config = JSON.parse(req.body)["generationConfig"] })
+      config
+    end
+
+    it "omits temperature and thinkingConfig by default" do
+      stub_ok
+      config = sent_config_for
+      expect(config).not_to have_key("temperature")
+      expect(config).not_to have_key("thinkingConfig")
+      expect(config["maxOutputTokens"]).to eq(16_384)
+    end
+
+    it "sends temperature when given" do
+      stub_ok
+      expect(sent_config_for(temperature: 0.1)["temperature"]).to eq(0.1)
+    end
+
+    { "low" => "low", "medium" => "medium", "high" => "high", "xhigh" => "high", "max" => "high" }.each do |effort, level|
+      it "maps effort #{effort} to thinkingLevel #{level}" do
+        stub_ok
+        expect(sent_config_for(effort: effort).dig("thinkingConfig", "thinkingLevel")).to eq(level)
+      end
+    end
+
+    it "adds thought tokens to output usage" do
+      stub_ok
+      expect(provider.chat(messages: messages)[:usage]).to include(input: 3, output: 10)
+    end
+
+    it "treats missing token counts as zero" do
+      stub_ok(candidates: [{ content: { parts: [{ text: "ok" }] } }], usageMetadata: { promptTokenCount: 3 })
+      expect(provider.chat(messages: messages)[:usage][:output]).to eq(0)
+    end
+
+    it "treats a missing thoughtsTokenCount as zero" do
+      stub_ok(candidates: [{ content: { parts: [{ text: "ok" }] } }],
+              usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 5 })
+      expect(provider.chat(messages: messages)[:usage][:output]).to eq(5)
+    end
+
+    it "returns empty content without raising when MAX_TOKENS is hit with no text" do
+      stub_ok(candidates: [{ content: { role: "model" }, finishReason: "MAX_TOKENS" }],
+              usageMetadata: { promptTokenCount: 3, thoughtsTokenCount: 64 })
+      result = provider.chat(messages: messages)
+      expect(result[:content]).to eq("")
+      expect(result[:usage][:output]).to eq(64)
+    end
+
+    it "skips thought-summary parts in content" do
+      stub_ok(candidates: [{ content: { parts: [{ text: "thinking...", thought: true }, { text: "Answer" }] } }],
+              usageMetadata: {})
+      expect(provider.chat(messages: messages)[:content]).to eq("Answer")
+    end
+
+    it "includes thought tokens in streamed usage and tolerates MAX_TOKENS with no text" do
+      events = [
+        { candidates: [{ content: { role: "model" }, finishReason: "MAX_TOKENS" }],
+          usageMetadata: { promptTokenCount: 3, thoughtsTokenCount: 64 } }
+      ]
+      stub_request(:post, api_url_pattern).to_return(
+        status: 200, body: events.map { |e| "data: #{JSON.generate(e)}\n\n" }.join,
+        headers: { "Content-Type" => "text/event-stream" }
+      )
+      result = provider.chat(messages: messages) { |_| }
+      expect(result[:content]).to eq("")
+      expect(result[:usage]).to eq(input: 3, output: 64)
+    end
+  end
+
   describe "#chat" do
     context "with synchronous response" do
       before do

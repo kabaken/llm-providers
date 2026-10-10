@@ -6,6 +6,9 @@ module LlmProviders
   module Providers
     class Google < Base
       BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+      THINKING_LEVELS = {
+        "low" => "low", "medium" => "medium", "high" => "high", "xhigh" => "high", "max" => "high"
+      }.freeze
 
       def chat(messages:, system: nil, tools: nil, &block)
         payload = build_payload(messages, system, tools)
@@ -38,10 +41,14 @@ module LlmProviders
         payload = {
           contents: format_messages(messages),
           generationConfig: {
-            maxOutputTokens: @max_tokens,
-            temperature: @temperature
+            maxOutputTokens: @max_tokens
           }
         }
+
+        payload[:generationConfig][:temperature] = @temperature if @temperature
+        if @effort
+          payload[:generationConfig][:thinkingConfig] = { thinkingLevel: THINKING_LEVELS.fetch(@effort) }
+        end
 
         payload[:system_instruction] = { parts: [{ text: system }] } if system && !system.empty?
 
@@ -186,7 +193,7 @@ module LlmProviders
           if candidate
             parts = candidate.dig("content", "parts") || []
             parts.each do |part|
-              yield(content: part["text"]) if part["text"]
+              yield(content: part["text"]) if part["text"] && !part["thought"]
               next unless part["functionCall"]
 
               tool_calls << {
@@ -198,14 +205,20 @@ module LlmProviders
           end
 
           if event["usageMetadata"]
-            yield(usage: {
-              input: event.dig("usageMetadata", "promptTokenCount"),
-              output: event.dig("usageMetadata", "candidatesTokenCount")
-            })
+            yield(usage: usage_from(event["usageMetadata"]))
           end
         rescue JSON::ParserError => e
           LlmProviders.logger.debug "[Google] JSON parse error: #{e.message}, data: #{data[0, 200]}"
         end
+      end
+
+      # Thinking tokens are billed as output and consume maxOutputTokens, so count them.
+      def usage_from(meta)
+        meta ||= {}
+        {
+          input: meta["promptTokenCount"],
+          output: meta["candidatesTokenCount"].to_i + meta["thoughtsTokenCount"].to_i
+        }
       end
 
       def sync_response(payload)
@@ -226,7 +239,7 @@ module LlmProviders
         candidate = body.dig("candidates", 0)
         parts = candidate&.dig("content", "parts") || []
 
-        content = parts.filter_map { |p| p["text"] }.join
+        content = parts.filter_map { |p| p["text"] unless p["thought"] }.join
         tool_calls = parts.filter_map do |p|
           next unless p["functionCall"]
 
@@ -240,10 +253,7 @@ module LlmProviders
         {
           content: content,
           tool_calls: tool_calls,
-          usage: {
-            input: body.dig("usageMetadata", "promptTokenCount"),
-            output: body.dig("usageMetadata", "candidatesTokenCount")
-          },
+          usage: usage_from(body["usageMetadata"]),
           latency_ms: ((Time.now - started_at) * 1000).to_i,
           raw_response: body
         }
