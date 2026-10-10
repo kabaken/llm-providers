@@ -5,9 +5,17 @@ require "faraday"
 module LlmProviders
   module Providers
     class Base
-      def initialize(model: nil, temperature: nil, max_tokens: nil)
+      EFFORT_LEVELS = %w[low medium high xhigh max].freeze
+
+      # temperature: nil means "provider default" (not sent).
+      # effort: nil means "provider default"; otherwise one of EFFORT_LEVELS.
+      def initialize(model: nil, temperature: nil, max_tokens: nil, effort: nil)
         @model = model || default_model
-        @temperature = temperature || 0.7
+        @temperature = temperature
+        @effort = effort&.to_s
+        unless @effort.nil? || EFFORT_LEVELS.include?(@effort)
+          raise ArgumentError, "effort must be one of #{EFFORT_LEVELS.join(", ")} (got #{effort.inspect})"
+        end
         @max_tokens = max_tokens || 16_384
       end
 
