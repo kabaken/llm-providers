@@ -155,6 +155,16 @@ RSpec.describe LlmProviders::Providers::Openrouter do
         expect(body["temperature"]).to eq(0.4)
         expect(body).not_to have_key("max_completion_tokens")
       end
+
+      %w[openai/gpt-6-luna gpt-6.1-sol].each do |model|
+        it "keeps #{model} on chat/completions (never the OpenAI Responses API)" do
+          body = sent_body_for(model: model, effort: "low")
+          expect(body["messages"]).to be_an(Array)
+          expect(body).not_to have_key("input")
+          expect(WebMock).not_to have_requested(:post, "https://api.openai.com/v1/responses")
+          expect(WebMock).not_to have_requested(:post, "https://openrouter.ai/api/v1/responses")
+        end
+      end
     end
 
     describe "provider routing" do

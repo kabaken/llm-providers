@@ -62,6 +62,11 @@ module LlmProviders
         false
       end
 
+      # OpenRouter always speaks chat/completions, even for OpenAI gpt-6 ids.
+      def responses_api?
+        false
+      end
+
       def build_payload(messages, system, tools)
         payload = super
         payload[:provider] = @provider_preferences if @provider_preferences

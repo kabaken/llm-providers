@@ -256,7 +256,7 @@ RSpec.describe LlmProviders::Providers::Openai do
       body
     end
 
-    %w[gpt-6-luna gpt-6.1-sol gpt-6-astra gpt-5.6-mini gpt-5-mini o3-mini o4-mini].each do |model|
+    %w[gpt-5.6-mini gpt-5-mini o3-mini o4-mini].each do |model|
       it "treats #{model} as a reasoning model" do
         body = sent_body_for(model: model, temperature: 0.5, max_tokens: 100)
         expect(body["max_completion_tokens"]).to eq(100)
@@ -282,7 +282,7 @@ RSpec.describe LlmProviders::Providers::Openai do
     end
 
     it "omits reasoning_effort by default" do
-      expect(sent_body_for(model: "gpt-6-luna")).not_to have_key("reasoning_effort")
+      expect(sent_body_for(model: "gpt-5.6-mini")).not_to have_key("reasoning_effort")
     end
 
     { "low" => "low", "medium" => "medium", "high" => "high", "xhigh" => "high", "max" => "high" }.each do |effort, mapped|
@@ -292,12 +292,6 @@ RSpec.describe LlmProviders::Providers::Openai do
 
       it "maps effort #{effort} to reasoning_effort #{mapped} for o-series" do
         expect(sent_body_for(model: "o3-mini", effort: effort)["reasoning_effort"]).to eq(mapped)
-      end
-
-      %w[gpt-6-luna gpt-6.1-sol].each do |model|
-        it "passes effort #{effort} through unchanged for #{model}" do
-          expect(sent_body_for(model: model, effort: effort)["reasoning_effort"]).to eq(effort)
-        end
       end
     end
 
@@ -345,6 +339,284 @@ RSpec.describe LlmProviders::Providers::Openai do
       result = provider.send(:format_messages, msgs, nil)
       tool_msg = result.find { |m| m[:role] == "tool" }
       expect(tool_msg[:tool_call_id]).to eq("tc1")
+    end
+  end
+
+  describe "Responses API (gpt-6*)" do
+    let(:responses_url) { "https://api.openai.com/v1/responses" }
+    let(:provider) { described_class.new(model: "gpt-6.1-sol", effort: "xhigh", max_tokens: 500) }
+    let(:tools) do
+      [{ name: "get_weather", description: "Get weather",
+         parameters: { type: "object", properties: { location: { type: "string" } }, required: ["location"] } }]
+    end
+
+    def sse(*events)
+      events.map { |e| "event: #{e[:type]}\ndata: #{JSON.generate(e)}\n\n" }.join
+    end
+
+    def stub_stream(body)
+      stub_request(:post, responses_url)
+        .to_return(status: 200, body: body, headers: { "Content-Type" => "text/event-stream" })
+    end
+
+    def sent_body
+      body = nil
+      expect(WebMock).to(have_requested(:post, responses_url).with { |req| body = JSON.parse(req.body) })
+      body
+    end
+
+    let(:completed_event) do
+      { type: "response.completed",
+        response: { id: "resp_1", status: "completed", output: [],
+                    usage: { input_tokens: 42, input_tokens_details: { cached_tokens: 8 },
+                             output_tokens: 17, output_tokens_details: { reasoning_tokens: 5 },
+                             total_tokens: 59 } } }
+    end
+
+    let(:sync_body) do
+      {
+        id: "resp_1", object: "response", status: "completed",
+        output: [
+          { id: "rs_1", type: "reasoning", summary: [] },
+          { id: "msg_1", type: "message", role: "assistant", status: "completed",
+            content: [{ type: "output_text", text: "Hi ", annotations: [] },
+                      { type: "output_text", text: "there", annotations: [] }] },
+          { id: "fc_1", type: "function_call", call_id: "call_1", name: "get_weather",
+            arguments: '{"location":"Tokyo"}', status: "completed" }
+        ],
+        usage: { input_tokens: 10, input_tokens_details: { cached_tokens: 0 },
+                 output_tokens: 20, output_tokens_details: { reasoning_tokens: 4 }, total_tokens: 30 }
+      }
+    end
+
+    %w[gpt-6-luna gpt-6.1-sol gpt-6-astra].each do |model|
+      it "sends #{model} to /v1/responses, not chat/completions" do
+        stub_stream(sse(completed_event))
+        described_class.new(model: model).chat(messages: messages) { |_| }
+        expect(WebMock).to have_requested(:post, responses_url)
+        expect(WebMock).not_to have_requested(:post, api_url)
+      end
+    end
+
+    it "builds the request with instructions, flat function tools, reasoning effort and max_output_tokens" do
+      stub_stream(sse(completed_event))
+      provider.chat(messages: messages, system: "Be brief", tools: tools) { |_| }
+
+      body = sent_body
+      expect(body["model"]).to eq("gpt-6.1-sol")
+      expect(body["instructions"]).to eq("Be brief")
+      expect(body["input"]).to eq([{ "role" => "user", "content" => "Hello" }])
+      expect(body["tools"]).to eq([{
+                                    "type" => "function", "name" => "get_weather", "description" => "Get weather",
+                                    "parameters" => { "type" => "object",
+                                                      "properties" => { "location" => { "type" => "string" } },
+                                                      "required" => ["location"] },
+                                    "strict" => false
+                                  }])
+      expect(body["reasoning"]).to eq({ "effort" => "xhigh" })
+      expect(body["max_output_tokens"]).to eq(500)
+      expect(body["stream"]).to be(true)
+      expect(body["store"]).to be(false)
+      %w[messages max_completion_tokens max_tokens reasoning_effort stream_options temperature].each do |key|
+        expect(body).not_to have_key(key)
+      end
+    end
+
+    it "omits instructions, tools and reasoning when not given" do
+      stub_stream(sse(completed_event))
+      described_class.new(model: "gpt-6-luna", temperature: 0.3).chat(messages: messages, tools: []) { |_| }
+
+      body = sent_body
+      %w[instructions tools reasoning temperature].each { |key| expect(body).not_to have_key(key) }
+    end
+
+    %w[low medium high xhigh max].each do |effort|
+      it "passes effort #{effort} through unchanged" do
+        stub_stream(sse(completed_event))
+        described_class.new(model: "gpt-6-astra", effort: effort).chat(messages: messages) { |_| }
+        expect(sent_body["reasoning"]).to eq({ "effort" => effort })
+      end
+    end
+
+    it "streams text deltas and returns content and usage" do
+      stub_stream(sse(
+                    { type: "response.created", response: { id: "resp_1", status: "in_progress" } },
+                    { type: "response.output_item.added", output_index: 0,
+                      item: { id: "msg_1", type: "message", role: "assistant", content: [] } },
+                    { type: "response.output_text.delta", item_id: "msg_1", output_index: 0, content_index: 0,
+                      delta: "Hello" },
+                    { type: "response.output_text.delta", item_id: "msg_1", output_index: 0, content_index: 0,
+                      delta: " world" },
+                    { type: "response.output_text.done", item_id: "msg_1", output_index: 0, content_index: 0,
+                      text: "Hello world" },
+                    completed_event
+                  ))
+
+      chunks = []
+      result = provider.chat(messages: messages) { |chunk| chunks << chunk }
+
+      expect(chunks).to eq([{ content: "Hello" }, { content: " world" }])
+      expect(result[:content]).to eq("Hello world")
+      expect(result[:tool_calls]).to eq([])
+      expect(result[:usage]).to eq({ input: 42, output: 17, cached_input: 8 })
+      expect(result[:latency_ms]).to be_a(Integer)
+      expect(result[:raw_response]).not_to be_nil
+    end
+
+    it "assembles streamed function calls from argument deltas, keyed by call_id" do
+      body = sse(
+        { type: "response.output_item.added", output_index: 0,
+          item: { id: "rs_1", type: "reasoning", summary: [] } },
+        { type: "response.output_item.added", output_index: 1,
+          item: { id: "fc_1", type: "function_call", call_id: "call_1", name: "get_weather", arguments: "" } },
+        { type: "response.function_call_arguments.delta", item_id: "fc_1", output_index: 1, delta: '{"loca' },
+        { type: "response.function_call_arguments.delta", item_id: "fc_1", output_index: 1, delta: 'tion":"Tokyo"}' },
+        { type: "response.function_call_arguments.done", item_id: "fc_1", output_index: 1,
+          arguments: '{"location":"Tokyo"}' },
+        { type: "response.output_item.added", output_index: 2,
+          item: { id: "fc_2", type: "function_call", call_id: "call_2", name: "get_time", arguments: "" } },
+        { type: "response.function_call_arguments.delta", item_id: "fc_2", output_index: 2, delta: "{}" },
+        { type: "response.output_item.done", output_index: 2,
+          item: { id: "fc_2", type: "function_call", call_id: "call_2", name: "get_time", arguments: "{}" } },
+        completed_event
+      )
+      stub_request(:post, responses_url)
+        .to_return(status: 200, body: body, headers: { "Content-Type" => "text/event-stream" })
+
+      chunks = []
+      result = provider.chat(messages: messages, tools: tools) { |chunk| chunks << chunk }
+
+      expect(chunks).to eq([])
+      expect(result[:content]).to eq("")
+      expect(result[:tool_calls]).to eq([
+                                          { id: "call_1", name: "get_weather", input: { "location" => "Tokyo" } },
+                                          { id: "call_2", name: "get_time", input: {} }
+                                        ])
+    end
+
+    it "translates a multi-turn tool loop into function_call / function_call_output items" do
+      stub_stream(sse(completed_event))
+      msgs = [
+        { role: "user", content: "Weather?" },
+        { role: "assistant", content: nil,
+          tool_calls: [{ id: "call_1", name: "get_weather", input: { "location" => "Tokyo" } },
+                       { "id" => "call_2", "name" => "get_time", "input" => "{}" }] },
+        { role: "tool", tool_call_id: "call_1", content: '{"temp":18}' },
+        { "role" => "tool", "tool_call_id" => "call_2", "content" => { "now" => "noon" } },
+        { role: "tool", tool_call_id: "orphan", content: "dropped" },
+        { role: "assistant", content: "Let me check more.",
+          tool_calls: [{ id: "call_3", name: "get_weather", input: { "location" => "Osaka" } }] },
+        { role: "tool", tool_call_id: "call_3", content: "rain" },
+        { role: "assistant", content: "It is 18C." },
+        { role: "user", content: "Thanks" }
+      ]
+
+      provider.chat(messages: msgs, tools: tools) { |_| }
+
+      expect(sent_body["input"]).to eq([
+                                         { "role" => "user", "content" => "Weather?" },
+                                         { "type" => "function_call", "call_id" => "call_1", "name" => "get_weather",
+                                           "arguments" => '{"location":"Tokyo"}' },
+                                         { "type" => "function_call", "call_id" => "call_2", "name" => "get_time",
+                                           "arguments" => "{}" },
+                                         { "type" => "function_call_output", "call_id" => "call_1",
+                                           "output" => '{"temp":18}' },
+                                         { "type" => "function_call_output", "call_id" => "call_2",
+                                           "output" => '{"now":"noon"}' },
+                                         { "role" => "assistant", "content" => "Let me check more." },
+                                         { "type" => "function_call", "call_id" => "call_3", "name" => "get_weather",
+                                           "arguments" => '{"location":"Osaka"}' },
+                                         { "type" => "function_call_output", "call_id" => "call_3", "output" => "rain" },
+                                         { "role" => "assistant", "content" => "It is 18C." },
+                                         { "role" => "user", "content" => "Thanks" }
+                                       ])
+    end
+
+    it "raises ProviderError on an error event" do
+      stub_stream(sse({ type: "error", code: "server_error", message: "Something went wrong", param: nil }))
+      expect { provider.chat(messages: messages) { |_| } }
+        .to raise_error(LlmProviders::ProviderError, /Something went wrong/)
+    end
+
+    it "raises ProviderError on response.failed" do
+      stub_stream(sse(
+                    { type: "response.output_text.delta", item_id: "msg_1", output_index: 0, delta: "Hel" },
+                    { type: "response.failed",
+                      response: { id: "resp_1", status: "failed", output: [], usage: nil,
+                                  error: { code: "server_error", message: "The model failed to generate a response." } } }
+                  ))
+      expect { provider.chat(messages: messages) { |_| } }
+        .to raise_error(LlmProviders::ProviderError, /failed to generate/)
+    end
+
+    it "returns partial content on response.incomplete" do
+      stub_stream(sse(
+                    { type: "response.output_text.delta", item_id: "msg_1", output_index: 0, delta: "Partial" },
+                    { type: "response.incomplete",
+                      response: { id: "resp_1", status: "incomplete", incomplete_details: { reason: "max_output_tokens" },
+                                  output: [], usage: { input_tokens: 3, output_tokens: 500 } } }
+                  ))
+      result = provider.chat(messages: messages) { |_| }
+      expect(result[:content]).to eq("Partial")
+      expect(result[:usage]).to include(input: 3, output: 500)
+    end
+
+    it "raises ProviderError with the API message on HTTP 400 while streaming" do
+      stub_request(:post, responses_url).to_return(
+        status: 400,
+        body: { error: { message: "Unsupported parameter: 'foo'", type: "invalid_request_error" } }.to_json,
+        headers: { "Content-Type" => "application/json" }
+      )
+      expect { provider.chat(messages: messages) { |_| } }
+        .to raise_error(LlmProviders::ProviderError, /Unsupported parameter/)
+    end
+
+    context "without a block (synchronous)" do
+      before do
+        stub_request(:post, responses_url)
+          .to_return(status: 200, body: sync_body.to_json, headers: { "Content-Type" => "application/json" })
+      end
+
+      it_behaves_like "a provider"
+
+      it "parses text, function calls and usage from output items" do
+        result = provider.chat(messages: messages, tools: tools)
+        expect(result[:content]).to eq("Hi there")
+        expect(result[:tool_calls]).to eq([{ id: "call_1", name: "get_weather", input: { "location" => "Tokyo" } }])
+        expect(result[:usage]).to eq({ input: 10, output: 20, cached_input: 0 })
+        expect(sent_body).not_to have_key("stream")
+      end
+    end
+
+    it "raises ProviderError on a synchronous HTTP error" do
+      stub_request(:post, responses_url).to_return(
+        status: 400, body: { error: { message: "Bad input" } }.to_json,
+        headers: { "Content-Type" => "application/json" }
+      )
+      expect { provider.chat(messages: messages) }.to raise_error(LlmProviders::ProviderError, /Bad input/)
+    end
+
+    it "raises ProviderError when a synchronous response has status failed" do
+      stub_request(:post, responses_url).to_return(
+        status: 200,
+        body: { id: "resp_1", status: "failed", output: [], error: { code: "server_error", message: "boom" } }.to_json,
+        headers: { "Content-Type" => "application/json" }
+      )
+      expect { provider.chat(messages: messages) }.to raise_error(LlmProviders::ProviderError, /boom/)
+    end
+
+    %w[gpt-5.6-mini gpt-5-mini gpt-4o o3-mini].each do |model|
+      it "keeps #{model} on chat/completions" do
+        stub_request(:post, api_url).to_return(
+          status: 200,
+          body: { choices: [{ message: { role: "assistant", content: "ok" } }],
+                  usage: { prompt_tokens: 1, completion_tokens: 1 } }.to_json,
+          headers: { "Content-Type" => "application/json" }
+        )
+        described_class.new(model: model).chat(messages: messages, tools: tools)
+        expect(WebMock).to have_requested(:post, api_url)
+        expect(WebMock).not_to have_requested(:post, responses_url)
+      end
     end
   end
 end
