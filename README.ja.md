@@ -77,10 +77,11 @@ provider = LlmProviders::Providers.build(
 - `temperature` のデフォルトは `nil` で、指定したときだけ送信します。0.7 を固定で送っていた 0.2.x までと異なります。Claude 5.x や OpenAI の reasoning モデルは temperature を受け付けません。
 - `effort` は思考の深さの指定です（`nil` ならプロバイダーのデフォルト）。範囲外の値は `ArgumentError` になります。
   - Anthropic: `output_config: { effort: ... }` にそのまま渡します。
-  - OpenAI: `reasoning_effort` に渡します。`gpt-6*` はそのまま、それ以前の reasoning モデル（gpt-5*、o 系）は `xhigh` / `max` を `high` に丸めます。`gpt-3.5*` / `gpt-4*` では無視されます。
+  - OpenAI: `gpt-6*` は `reasoning: { effort: ... }` としてそのまま送ります（Responses API、下記参照）。ほかの reasoning モデル（gpt-5*、o 系）は `reasoning_effort` に渡し、`xhigh` / `max` は `high` に丸めます。`gpt-3.5*` / `gpt-4*` では無視されます。
   - Google: `thinkingConfig.thinkingLevel` に変換します（low→low、medium→medium、high/xhigh/max→high）。Gemini 3 以降（と `*-latest`）にだけ送り、Gemini 2.x では無視します。
   - OpenRouter: `reasoning: { effort: ... }` として送ります。`xhigh` / `max` は `high` に丸めます。
-- OpenAI は `gpt-3.5*` / `gpt-4*` 以外を reasoning モデルとして扱い、`max_completion_tokens` を使って temperature を送りません。OpenRouter は `vendor/model` 形式の ID なので従来どおり `max_tokens` を使い、temperature は指定時のみ送ります。
+- OpenAI の `gpt-6*` は Responses API（`/v1/responses`）で呼びます。chat/completions ではこれらのモデルに function tools と `reasoning_effort` を同時に送れないためです。system プロンプトは `instructions`、上限トークン数は `max_output_tokens` で送り、tools には `strict: false` を付け、`store: false` でリクエストします。戻り値とストリーミングのチャンクの形は chat/completions のときと同じです。ほかの OpenAI モデルは chat/completions のままで、OpenRouter は常に chat/completions を使います。
+- `gpt-6*` 以外の OpenAI モデルは、`gpt-3.5*` / `gpt-4*` 以外を reasoning モデルとして扱い、`max_completion_tokens` を使って temperature を送りません。OpenRouter は `vendor/model` 形式の ID なので従来どおり `max_tokens` を使い、temperature は指定時のみ送ります。
 - Google の usage の `output` は思考トークンを含みます。
 
 ### ツール呼び出し

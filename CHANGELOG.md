@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0] - 2026-10-10
+
+### Added
+
+- OpenAI `gpt-6*` models now use the Responses API (`/v1/responses`). On chat/completions these models return 400 when function tools and `reasoning_effort` are sent together. The system prompt goes in `instructions`, tools are sent as flat function tools with `strict: false`, `effort` becomes `reasoning.effort`, `max_tokens` becomes `max_output_tokens`, and `store` is `false`. Tool loops map to `function_call` / `function_call_output` items by call id. The return hash and streamed chunks keep their shape.
+
+### Unchanged
+
+- Every other OpenAI model and all OpenRouter models still use chat/completions.
+
 ## [0.3.0] - 2026-10-10
 
 ### Breaking

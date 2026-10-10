@@ -77,10 +77,11 @@ provider = LlmProviders::Providers.build(
 - `temperature` defaults to `nil` and is sent only when you set it. Versions up to 0.2.x always sent 0.7. Claude 5.x and OpenAI reasoning models reject the parameter.
 - `effort` sets how hard the model thinks (`nil` means the provider default). Any other value raises `ArgumentError`.
   - Anthropic: sent as `output_config: { effort: ... }`.
-  - OpenAI: sent as `reasoning_effort`. `gpt-6*` gets the value unchanged; older reasoning models (gpt-5*, o-series) get `xhigh` / `max` clamped to `high`. Ignored for `gpt-3.5*` / `gpt-4*`.
+  - OpenAI: `gpt-6*` sends it unchanged as `reasoning: { effort: ... }` (Responses API, see below). Other reasoning models (gpt-5*, o-series) send `reasoning_effort`, with `xhigh` / `max` clamped to `high`. Ignored for `gpt-3.5*` / `gpt-4*`.
   - Google: mapped to `thinkingConfig.thinkingLevel` (low, medium, high; xhigh and max become high). Only sent for Gemini 3 and later (and `*-latest` aliases); ignored for Gemini 2.x.
   - OpenRouter: sent as `reasoning: { effort: ... }`, with xhigh and max clamped to `high`.
-- OpenAI treats every model except `gpt-3.5*` / `gpt-4*` as a reasoning model: it uses `max_completion_tokens` and sends no temperature. OpenRouter ids look like `vendor/model`, so it keeps using `max_tokens` and sends temperature only when given.
+- OpenAI `gpt-6*` models use the Responses API (`/v1/responses`), because chat/completions rejects function tools combined with `reasoning_effort` for them. The system prompt goes in `instructions`, the token cap in `max_output_tokens`, tools are sent with `strict: false`, and requests use `store: false`. The return value and streamed chunks have the same shape as on chat/completions. All other OpenAI models stay on chat/completions, and OpenRouter always uses chat/completions.
+- OpenAI treats every other model except `gpt-3.5*` / `gpt-4*` as a reasoning model: it uses `max_completion_tokens` and sends no temperature. OpenRouter ids look like `vendor/model`, so it keeps using `max_tokens` and sends temperature only when given.
 - For Google, usage `output` includes thinking tokens.
 
 ### Tool Calling
