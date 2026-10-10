@@ -81,6 +81,15 @@ RSpec.describe LlmProviders::Providers::Anthropic do
       expect(described_class.new.chat(messages: messages)[:content]).to eq("")
     end
 
+    it "writes nothing to stdout while streaming" do
+      stub_request(:post, api_url).to_return(
+        status: 200,
+        body: "data: #{JSON.generate(type: "content_block_start", index: 0, content_block: { type: "text", text: "" })}\n\n",
+        headers: { "Content-Type" => "text/event-stream" }
+      )
+      expect { described_class.new.chat(messages: messages) { |_| } }.not_to output.to_stdout
+    end
+
     it "ignores thinking events in a streaming response" do
       events = [
         { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "" } },

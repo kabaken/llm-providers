@@ -132,8 +132,7 @@ module LlmProviders
         payload[:stream] = true
         started_at = Time.now
 
-        puts "[Anthropic] stream_response payload tools: #{payload[:tools]&.size || 0}"
-        puts "[Anthropic] payload[:tools] = #{payload[:tools].inspect}" if payload[:tools]
+        LlmProviders.logger.debug "[Anthropic] stream_response payload tools: #{payload[:tools]&.size || 0}"
 
         full_content = ""
         tool_calls = []
@@ -164,9 +163,9 @@ module LlmProviders
                 end
               end
             when "content_block_start"
-              puts "[Anthropic] content_block_start: #{event["content_block"]&.dig("type")}"
+              LlmProviders.logger.debug "[Anthropic] content_block_start: #{event["content_block"]&.dig("type")}"
               if event.dig("content_block", "type") == "tool_use"
-                puts "[Anthropic] Tool use started: #{event.dig("content_block", "name")}"
+                LlmProviders.logger.debug "[Anthropic] Tool use started: #{event.dig("content_block", "name")}"
                 tool_calls << {
                   id: event.dig("content_block", "id"),
                   name: event.dig("content_block", "name"),
