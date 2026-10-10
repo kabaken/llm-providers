@@ -80,7 +80,7 @@ provider = LlmProviders::Providers.build(
   - OpenAI: `gpt-6*` は `reasoning: { effort: ... }` としてそのまま送ります（Responses API、下記参照）。ほかの reasoning モデル（gpt-5*、o 系）は `reasoning_effort` に渡し、`xhigh` / `max` は `high` に丸めます。`gpt-3.5*` / `gpt-4*` では無視されます。
   - Google: `thinkingConfig.thinkingLevel` に変換します（low→low、medium→medium、high/xhigh/max→high）。Gemini 3 以降（と `*-latest`）にだけ送り、Gemini 2.x では無視します。
   - OpenRouter: `reasoning: { effort: ... }` として送ります。`xhigh` / `max` は `high` に丸めます。
-- OpenAI の `gpt-6*` は Responses API（`/v1/responses`）で呼びます。chat/completions ではこれらのモデルに function tools と `reasoning_effort` を同時に送れないためです。system プロンプトは `instructions`、上限トークン数は `max_output_tokens` で送り、tools には `strict: false` を付け、`store: false` でリクエストします。戻り値とストリーミングのチャンクの形は chat/completions のときと同じです。ほかの OpenAI モデルは chat/completions のままで、OpenRouter は常に chat/completions を使います。
+- OpenAI の `gpt-6*` は Responses API（`/v1/responses`）で呼びます。chat/completions ではこれらのモデルに function tools と `reasoning_effort` を同時に送れないためです。system プロンプトは `instructions`、上限トークン数は `max_output_tokens` で送り、tools には `strict: false` を付け、`store: false` でリクエストします。戻り値とストリーミングのチャンクの形は変わりません。ほかの OpenAI モデルと OpenRouter は、これまでどおり chat/completions を使います。
 - `gpt-6*` 以外の OpenAI モデルは、`gpt-3.5*` / `gpt-4*` 以外を reasoning モデルとして扱い、`max_completion_tokens` を使って temperature を送りません。OpenRouter は `vendor/model` 形式の ID なので従来どおり `max_tokens` を使い、temperature は指定時のみ送ります。
 - Google の usage の `output` は思考トークンを含みます。
 
