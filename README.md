@@ -68,10 +68,20 @@ end
 provider = LlmProviders::Providers.build(
   :openai,
   model: "gpt-4.1",
-  temperature: 0.7,
-  max_tokens: 4096
+  temperature: 0.7,   # optional; defaults to nil (not sent)
+  max_tokens: 4096,
+  effort: "medium"    # optional; "low", "medium", "high", "xhigh" or "max"
 )
 ```
+
+- `temperature` defaults to `nil` and is sent only when you set it. Versions up to 0.2.x always sent 0.7. Claude 5.x and OpenAI reasoning models reject the parameter.
+- `effort` sets how hard the model thinks (`nil` means the provider default). Any other value raises `ArgumentError`.
+  - Anthropic: sent as `output_config: { effort: ... }`.
+  - OpenAI: sent as `reasoning_effort`. `gpt-6*` gets the value unchanged; older reasoning models (gpt-5*, o-series) get `xhigh` / `max` clamped to `high`. Ignored for `gpt-3.5*` / `gpt-4*`.
+  - Google: mapped to `thinkingConfig.thinkingLevel` (low, medium, high; xhigh and max become high).
+  - OpenRouter: not forwarded for now.
+- OpenAI treats every model except `gpt-3.5*` / `gpt-4*` as a reasoning model: it uses `max_completion_tokens` and sends no temperature. OpenRouter ids look like `vendor/model`, so it keeps using `max_tokens` and sends temperature only when given.
+- For Google, usage `output` includes thinking tokens.
 
 ### Tool Calling
 

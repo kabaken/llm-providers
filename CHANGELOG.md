@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.0] - 2026-10-10
+
+### Changed
+
+- **Breaking:** `temperature` now defaults to `nil` and is sent only when given (it used to default to 0.7). Claude 5.x and OpenAI reasoning models reject it.
+- OpenAI treats every model except `gpt-3.5*` / `gpt-4*` as a reasoning model. OpenRouter keeps the old behavior for its `vendor/model` ids.
+- Anthropic non-streaming responses join all text blocks instead of taking the first.
+
+### Added
+
+- `effort:` option (`low`, `medium`, `high`, `xhigh`, `max`; `nil` for the provider default). Anthropic sends `output_config.effort`, OpenAI sends `reasoning_effort` (clamped to `high` below gpt-6), Google sends `thinkingConfig.thinkingLevel`. Unknown values raise `ArgumentError`.
+
+### Fixed
+
+- GPT-6 and gpt-5.x models now get `max_completion_tokens` instead of `max_tokens`.
+- Claude 5.x no longer fails with "`temperature` is deprecated for this model".
+- Gemini usage `output` now includes thought tokens, so it is never nil; a response that hits MAX_TOKENS with no text returns empty content instead of raising.
+- Anthropic thinking blocks and `thinking_delta` / `signature_delta` events are ignored in results; Gemini thought-summary parts are left out of content.
+
 ## [0.2.2] - 2026-02-27
 
 ### Fixed

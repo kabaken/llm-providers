@@ -68,10 +68,20 @@ end
 provider = LlmProviders::Providers.build(
   :openai,
   model: "gpt-4.1",
-  temperature: 0.7,
-  max_tokens: 4096
+  temperature: 0.7,   # 省略可。デフォルトは nil（送信しない）
+  max_tokens: 4096,
+  effort: "medium"    # 省略可。"low" / "medium" / "high" / "xhigh" / "max"
 )
 ```
+
+- `temperature` のデフォルトは `nil` で、指定したときだけ送信します。0.7 を固定で送っていた 0.2.x までと異なります。Claude 5.x や OpenAI の reasoning モデルは temperature を受け付けません。
+- `effort` は思考の深さの指定です（`nil` ならプロバイダーのデフォルト）。範囲外の値は `ArgumentError` になります。
+  - Anthropic: `output_config: { effort: ... }` にそのまま渡します。
+  - OpenAI: `reasoning_effort` に渡します。`gpt-6*` はそのまま、それ以前の reasoning モデル（gpt-5*、o 系）は `xhigh` / `max` を `high` に丸めます。`gpt-3.5*` / `gpt-4*` では無視されます。
+  - Google: `thinkingConfig.thinkingLevel` に変換します（low→low、medium→medium、high/xhigh/max→high）。
+  - OpenRouter: 現状は転送しません。
+- OpenAI は `gpt-3.5*` / `gpt-4*` 以外を reasoning モデルとして扱い、`max_completion_tokens` を使って temperature を送りません。OpenRouter は `vendor/model` 形式の ID なので従来どおり `max_tokens` を使い、temperature は指定時のみ送ります。
+- Google の usage の `output` は思考トークンを含みます。
 
 ### ツール呼び出し
 
