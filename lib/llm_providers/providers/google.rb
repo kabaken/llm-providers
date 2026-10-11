@@ -65,40 +65,54 @@ module LlmProviders
         payload
       end
 
+      # Gemini only accepts user/model roles. Tool results go back as a user turn of
+      # functionResponse parts (one turn per batch of calls), named after the call they
+      # answer. Gemini 3 also rejects a functionCall replayed without its thoughtSignature.
       def format_messages(messages)
-        messages.filter_map do |msg|
+        call_names = {}
+
+        messages.each_with_object([]) do |msg, contents|
           msg = stringify_keys(msg)
           next if msg["role"] == "system"
 
-          role = msg["role"] == "assistant" ? "model" : msg["role"]
-
           if msg["role"] == "tool"
-            {
-              role: "function",
-              parts: [{
-                functionResponse: {
-                  name: msg["tool_name"] || "function",
-                  response: { content: msg["content"] }
-                }
-              }]
+            part = {
+              functionResponse: {
+                name: msg["tool_name"] || call_names[msg["tool_call_id"]] || "function",
+                response: { content: msg["content"] }
+              }
             }
+            if contents.last && contents.last[:function_responses]
+              contents.last[:parts] << part
+            else
+              contents << { role: "user", parts: [part], function_responses: true }
+            end
           elsif msg["tool_calls"] && !msg["tool_calls"].empty?
             parts = []
             parts << { text: msg["content"] } if msg["content"] && !msg["content"].empty?
             msg["tool_calls"].each do |tc|
               tc = stringify_keys(tc)
-              parts << {
-                functionCall: {
-                  name: tc["name"],
-                  args: tc["input"]
-                }
-              }
+              call_names[tc["id"]] = tc["name"] if tc["id"]
+              part = { functionCall: { name: tc["name"], args: tc["input"] || {} } }
+              part[:thoughtSignature] = tc["thought_signature"] if tc["thought_signature"]
+              parts << part
             end
-            { role: role, parts: parts }
+            contents << { role: "model", parts: parts }
           else
-            { role: role, parts: [{ text: msg["content"] }] }
+            role = msg["role"] == "assistant" ? "model" : msg["role"]
+            contents << { role: role, parts: [{ text: msg["content"] }] }
           end
-        end
+        end.map { |content| content.except(:function_responses) }
+      end
+
+      def tool_call_from(part)
+        call = {
+          id: SecureRandom.hex(12),
+          name: part.dig("functionCall", "name"),
+          input: part.dig("functionCall", "args") || {}
+        }
+        call[:thought_signature] = part["thoughtSignature"] if part["thoughtSignature"]
+        call
       end
 
       def format_tools(tools)
@@ -205,11 +219,7 @@ module LlmProviders
               yield(content: part["text"]) if part["text"] && !part["thought"]
               next unless part["functionCall"]
 
-              tool_calls << {
-                id: SecureRandom.hex(12),
-                name: part.dig("functionCall", "name"),
-                input: part.dig("functionCall", "args") || {}
-              }
+              tool_calls << tool_call_from(part)
             end
           end
 
@@ -249,15 +259,7 @@ module LlmProviders
         parts = candidate&.dig("content", "parts") || []
 
         content = parts.filter_map { |p| p["text"] unless p["thought"] }.join
-        tool_calls = parts.filter_map do |p|
-          next unless p["functionCall"]
-
-          {
-            id: SecureRandom.hex(12),
-            name: p.dig("functionCall", "name"),
-            input: p.dig("functionCall", "args") || {}
-          }
-        end
+        tool_calls = parts.filter_map { |p| tool_call_from(p) if p["functionCall"] }
 
         {
           content: content,

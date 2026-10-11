@@ -348,11 +348,59 @@ RSpec.describe LlmProviders::Providers::Google do
       expect(result.first[:role]).to eq("user")
     end
 
-    it "formats tool messages as function responses" do
+    it "formats tool messages as function responses in a user turn" do
       msgs = [{ role: "tool", content: "result", tool_name: "get_weather" }]
       result = provider.send(:format_messages, msgs)
-      expect(result.first[:role]).to eq("function")
+      expect(result.first[:role]).to eq("user")
       expect(result.first[:parts].first[:functionResponse][:name]).to eq("get_weather")
+    end
+
+    it "names a function response after the call it answers when tool_name is missing" do
+      msgs = [
+        { role: "user", content: "Weather?" },
+        { role: "assistant", content: "", tool_calls: [{ id: "c1", name: "get_weather", input: { city: "Tokyo" } }] },
+        { role: "tool", tool_call_id: "c1", content: "sunny" }
+      ]
+      result = provider.send(:format_messages, msgs)
+      expect(result.last[:parts].first[:functionResponse][:name]).to eq("get_weather")
+    end
+
+    it "puts the results of parallel calls in one user turn" do
+      msgs = [
+        { role: "assistant", content: "", tool_calls: [
+          { id: "c1", name: "a", input: {} },
+          { id: "c2", name: "b", input: {} }
+        ] },
+        { role: "tool", tool_call_id: "c1", content: "1" },
+        { role: "tool", tool_call_id: "c2", content: "2" }
+      ]
+      result = provider.send(:format_messages, msgs)
+      expect(result.size).to eq(2)
+      expect(result.last[:role]).to eq("user")
+      expect(result.last[:parts].map { |p| p[:functionResponse][:name] }).to eq(%w[a b])
+      expect(result.last).not_to have_key(:function_responses)
+    end
+
+    it "replays the thought signature on function calls" do
+      msgs = [{ role: "assistant", content: "", tool_calls: [
+        { "id" => "c1", "name" => "a", "input" => {}, "thought_signature" => "sig" }
+      ] }]
+      part = provider.send(:format_messages, msgs).first[:parts].first
+      expect(part[:thoughtSignature]).to eq("sig")
+      expect(part[:functionCall]).to eq(name: "a", args: {})
+    end
+
+    it "omits the thought signature when the call has none" do
+      msgs = [{ role: "assistant", content: "", tool_calls: [{ id: "c1", name: "a", input: {} }] }]
+      part = provider.send(:format_messages, msgs).first[:parts].first
+      expect(part).not_to have_key(:thoughtSignature)
+    end
+  end
+
+  describe "#tool_call_from" do
+    it "keeps the thought signature" do
+      call = provider.send(:tool_call_from, { "functionCall" => { "name" => "a", "args" => { "x" => 1 } }, "thoughtSignature" => "sig" })
+      expect(call).to include(name: "a", input: { "x" => 1 }, thought_signature: "sig")
     end
   end
 end

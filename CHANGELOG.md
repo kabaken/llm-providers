@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1] - 2026-10-11
+
+### Fixed
+
+- Gemini tool loops failed on the second round with `Role 'function' is not supported`. Tool results are now sent as a `user` turn of `functionResponse` parts, and results for parallel calls share one turn.
+- When a tool message has no `tool_name`, the function response is named after the call it answers (looked up by `tool_call_id`). It used to fall back to `"function"`.
+- Gemini 3 returns a `thoughtSignature` on function calls and rejects the next request without it. Tool calls now carry it as `thought_signature`, and it goes back on the matching `functionCall` part.
+
 ## [0.4.0] - 2026-10-10
 
 ### Added
